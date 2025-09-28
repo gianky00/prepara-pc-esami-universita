@@ -19,8 +19,9 @@
 
 #region Variabili Globali e Impostazioni del Modulo
 
-# Definisce le funzioni che verranno esportate dal modulo e rese disponibili all'utente.
-Export-ModuleMember -Function Start-ExamPreparation, Start-ExamRestore
+# Le funzioni di questo modulo (Start-ExamPreparation, Start-ExamRestore) vengono esportate
+# tramite il file di manifesto 'ExamPrep.psd1'. L'uso del manifesto è la pratica consigliata
+# per gestire l'esportazione dei membri del modulo e risolve il problema di riconoscimento dei comandi.
 
 # Percorso del file di configurazione. Lo script si aspetta di trovarlo nella stessa cartella.
 $Global:ConfigFilePath = Join-Path $PSScriptRoot "ExamPrep.config.json"
