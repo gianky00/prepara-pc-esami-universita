@@ -327,7 +327,9 @@ function New-ExamPrepReport {
     }
 
     $header = "=================================================================`n                REPORT DI SISTEMA - $(Get-Date)`n================================================================="
-    Set-Content -Path $ReportPath -Value $header -Encoding utf8BOM
+    # CORREZIONE: Usa l'encoding 'UTF8' standard, che in PowerShell moderno include il BOM,
+    # garantendo la compatibilità senza causare errori.
+    Set-Content -Path $ReportPath -Value $header -Encoding UTF8
 
     Run-And-Log-Report -Title "INFORMAZIONI DI SISTEMA (SYSTEMINFO)" -Command { systeminfo } -FilePath $ReportPath
     Run-And-Log-Report -Title "INFORMAZIONI PROCESSORE (Get-CimInstance)" -Command { Get-CimInstance -ClassName Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed | Format-List } -FilePath $ReportPath
