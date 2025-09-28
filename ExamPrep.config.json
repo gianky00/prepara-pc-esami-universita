@@ -41,5 +41,8 @@
   "NetworkAdapterManagement": {
     "Enabled": true,
     "PrimaryInterfaceDescription": "Realtek RTL8852BE-VS WiFi 6 802.11ax PCIe Adapter"
+  },
+  "AdvancedServiceManagement": {
+    "Enabled": true
   }
 }
