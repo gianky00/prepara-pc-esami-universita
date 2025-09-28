@@ -67,6 +67,114 @@ function Test-And-Create-RegistryPath {
     return $false
 }
 
+# Funzione per scoprire processi utente non di sistema in esecuzione.
+function Get-DiscoverableProcesses {
+    param(
+        [string[]]$KnownProcesses # Array di nomi di processi già noti (da ignorare)
+    )
+
+    $windowsPath = $env:SystemRoot
+    Write-Log -Level VERBOSE -Message "Avvio scansione processi utente..."
+
+    try {
+        $processes = Get-Process | Where-Object {
+            $_.MainWindowTitle -and
+            $_.Path -and
+            -not $_.Path.StartsWith($windowsPath)
+        } | Select-Object -ExpandProperty ProcessName -Unique
+
+        Write-Log -Level VERBOSE -Message "Trovati $($processes.Count) processi unici con una finestra."
+
+        # Confronta in modo case-insensitive
+        $knownProcessesLower = $KnownProcesses | ForEach-Object { $_.ToLower() }
+        $discovered = $processes | Where-Object { ($_.ToLower() + ".exe") -notin $knownProcessesLower }
+
+        Write-Log -Level VERBOSE -Message "Scoperti $($discovered.Count) processi non ancora configurati."
+        return $discovered
+    } catch {
+        Write-Log -Level WARN -Message "Impossibile scansionare i processi in esecuzione. Errore: $($_.Exception.Message)"
+        return @() # Restituisce un array vuoto in caso di errore
+    }
+}
+
+# Funzione per aggiornare in modo sicuro il file di configurazione JSON
+function Update-ExamPrepConfig {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [Parameter(Mandatory = $true)][string]$Key,
+        [Parameter(Mandatory = $true)][string]$Value
+    )
+    try {
+        $configObject = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json
+        if ($configObject.PSObject.Properties[$Key]) {
+            $list = $configObject.PSObject.Properties[$Key].Value
+            if ($Value -notin $list) {
+                $list.Add($Value)
+                $configObject | ConvertTo-Json -Depth 5 | Out-File -FilePath $ConfigPath -Encoding UTF8
+                Write-Log -Level VERBOSE -Message "Aggiunto '$Value' a '$Key' nel file di configurazione."
+            }
+        }
+    } catch {
+        Write-Log -Level WARN -Message "Impossibile aggiornare il file di configurazione. Errore: $($_.Exception.Message)"
+    }
+}
+
+# Motore di classificazione interattivo
+function Invoke-ProcessClassifier {
+    param(
+        [Parameter(Mandatory = $true)]$DiscoveredProcesses,
+        [Parameter(Mandatory = $true)]$ConfigPath,
+        [Parameter(Mandatory = $true)]$LogPath
+    )
+
+    $sessionKillList = [System.Collections.Generic.List[string]]@()
+    $sessionAllowList = [System.Collections.Generic.List[string]]@()
+
+    Write-Log -Level INFO -Message "Trovati $($DiscoveredProcesses.Count) processi non configurati. Inizio classificazione:" -LogPath $LogPath
+
+    foreach ($processName in $DiscoveredProcesses) {
+        $title = "Processo non configurato: '$($processName.ToUpper())'"
+        $message = "Cosa vuoi fare con questo processo?"
+        $choices = @(
+            New-Object System.Management.Automation.Host.ChoiceDescription -ArgumentList '&Chiudi (solo per questa sessione)', 'Termina questo processo adesso.'
+            New-Object System.Management.Automation.Host.ChoiceDescription -ArgumentList '&Ignora (solo per questa sessione)', 'Lascia questo processo in esecuzione.'
+            New-Object System.Management.Automation.Host.ChoiceDescription -ArgumentList 'Chiudi [S]empre', "Termina questo processo e aggiungilo alla lista 'ProcessesToKill' per il futuro."
+            New-Object System.Management.Automation.Host.ChoiceDescription -ArgumentList 'Ignora se[m]pre', "Lascia in esecuzione questo processo e aggiungilo alla lista 'AllowedApplications' per il futuro."
+            New-Object System.Management.Automation.Host.ChoiceDescription -ArgumentList 'Ignora [t]utti i rimanenti', 'Salta la classificazione per tutti gli altri processi trovati.'
+        )
+
+        $decision = $Host.UI.PromptForChoice($title, $message, $choices, 0)
+
+        $processExe = "$processName.exe"
+        switch ($decision) {
+            0 { # Chiudi
+                $sessionKillList.Add($processExe)
+                Write-Log -Level INFO -Message "Decisione temporanea: Chiudi '$processExe'" -LogPath $LogPath
+            }
+            1 { # Ignora
+                $sessionAllowList.Add($processExe)
+                Write-Log -Level INFO -Message "Decisione temporanea: Ignora '$processExe'" -LogPath $LogPath
+            }
+            2 { # Chiudi Sempre
+                Update-ExamPrepConfig -ConfigPath $ConfigPath -Key 'ProcessesToKill' -Value $processExe
+                $sessionKillList.Add($processExe)
+                Write-Log -Level SUCCESS -Message "Configurazione aggiornata: '$processExe' verrà sempre chiuso." -LogPath $LogPath
+            }
+            3 { # Ignora Sempre
+                Update-ExamPrepConfig -ConfigPath $ConfigPath -Key 'AllowedApplications' -Value $processExe
+                $sessionAllowList.Add($processExe)
+                Write-Log -Level SUCCESS -Message "Configurazione aggiornata: '$processExe' verrà sempre ignorato." -LogPath $LogPath
+            }
+            4 { # Ignora tutti
+                Write-Log -Level WARN -Message "Tutti i restanti processi non configurati verranno ignorati per questa sessione." -LogPath $LogPath
+                return @{ Kill = $sessionKillList; Allow = $sessionAllowList }
+            }
+        }
+    }
+
+    return @{ Kill = $sessionKillList; Allow = $sessionAllowList }
+}
+
 #endregion
 
 #region Funzioni Pubbliche (Esportate dal Modulo)
@@ -121,7 +229,21 @@ function Start-ExamPreparation {
         return
     }
 
-    # 2. Conferma Utente
+    # 2. Scoperta e Classificazione Processi
+    Write-Log -Level INFO -Message "[2/8] Scansione per processi non configurati..." -LogPath $LogPath
+    $knownProcesses = $config.ProcessesToKill + $config.AllowedApplications
+    $discovered = Get-DiscoverableProcesses -KnownProcesses $knownProcesses -LogPath $LogPath
+
+    $sessionDecisions = @{ Kill = @(); Allow = @() }
+    if ($discovered.Count -gt 0) {
+        $sessionDecisions = Invoke-ProcessClassifier -DiscoveredProcesses $discovered -ConfigPath $ConfigPath -LogPath $LogPath
+        # Ricarica la configurazione nel caso sia stata modificata dal classificatore
+        $config = Get-ExamPrepConfig -ConfigPath $ConfigPath
+    } else {
+        Write-Log -Level VERBOSE -Message "Nessun nuovo processo da classificare." -LogPath $LogPath
+    }
+
+    # 3. Conferma Utente Finale
     if (-not $PSCmdlet.ShouldProcess("il sistema per la preparazione all'esame", "Sei sicuro di voler procedere?", "Conferma")) {
         Write-Log -Level WARN -Message "Operazione annullata dall'utente." -LogPath $LogPath
         Remove-Item -Path $backupFile -Force -ErrorAction SilentlyContinue
@@ -129,9 +251,20 @@ function Start-ExamPreparation {
     }
     Write-Log -Level INFO -Message "Conferma ricevuta, avvio delle operazioni..." -LogPath $LogPath
 
-    # 3. Terminazione Processi
-    Write-Log -Level INFO -Message "[3/7] Terminazione processi non consentiti..." -LogPath $LogPath
-    $finalProcessesToKill = $config.ProcessesToKill | Where-Object { $_ -notin $config.AllowedApplications }
+    # 4. Terminazione Processi
+    Write-Log -Level INFO -Message "[4/8] Terminazione processi non consentiti..." -LogPath $LogPath
+    # Combina la lista di uccisione dalla configurazione con le decisioni di questa sessione
+    $killListFromConfig = if ($config.ProcessesToKill) { $config.ProcessesToKill } else { @() }
+    $killListFromSession = if ($sessionDecisions.Kill) { $sessionDecisions.Kill } else { @() }
+    $finalProcessesToKill = $killListFromConfig + $killListFromSession
+
+    # Assicura che la lista finale non contenga processi permessi (per questa sessione o permanentemente)
+    $allowListFromConfig = if ($config.AllowedApplications) { $config.AllowedApplications } else { @() }
+    $allowListFromSession = if ($sessionDecisions.Allow) { $sessionDecisions.Allow } else { @() }
+    $finalAllowed = $allowListFromConfig + $allowListFromSession
+
+    $finalProcessesToKill = $finalProcessesToKill | Where-Object { $_ -notin $finalAllowed } | Select-Object -Unique
+
     foreach ($process in $finalProcessesToKill) {
         $procName = $process.Replace(".exe", "")
         if (Get-Process -Name $procName -ErrorAction SilentlyContinue) {
@@ -140,8 +273,8 @@ function Start-ExamPreparation {
         }
     }
 
-    # 4. Ottimizzazione Prestazioni
-    Write-Log -Level INFO -Message "[4/7] Ottimizzazione prestazioni..." -LogPath $LogPath
+    # 5. Ottimizzazione Prestazioni
+    Write-Log -Level INFO -Message "[5/8] Ottimizzazione prestazioni..." -LogPath $LogPath
     $highPerfGuid = "8c5e7fda-e8bf-4a96-9a8f-a307e2250669"
     try {
         powercfg /setactive $highPerfGuid
@@ -159,8 +292,8 @@ function Start-ExamPreparation {
         }
     }
 
-    # 5. Pulizia File Temporanei
-    Write-Log -Level INFO -Message "[5/7] Pulizia file temporanei..." -LogPath $LogPath
+    # 6. Pulizia File Temporanei
+    Write-Log -Level INFO -Message "[6/8] Pulizia file temporanei..." -LogPath $LogPath
     $tempPaths = @("$env:TEMP", "$env:SystemRoot\Temp", "$env:SystemRoot\Prefetch")
     foreach ($path in $tempPaths) {
         if (Test-Path $path) {
@@ -169,8 +302,8 @@ function Start-ExamPreparation {
         }
     }
 
-    # 6. Ambiente Senza Distrazioni
-    Write-Log -Level INFO -Message "[6/7] Creazione ambiente senza distrazioni..." -LogPath $LogPath
+    # 7. Ambiente Senza Distrazioni
+    Write-Log -Level INFO -Message "[7/8] Creazione ambiente senza distrazioni..." -LogPath $LogPath
     try {
         if (Test-And-Create-RegistryPath -Path $quietHoursKey) {
             Write-Log -Level VERBOSE -Message "Creato percorso registro per QuietHours." -LogPath $LogPath
@@ -192,9 +325,9 @@ function Start-ExamPreparation {
         Write-Log -Level ERROR -Message "Errore durante la configurazione dell'ambiente. Dettagli: $($_.Exception.Message)" -LogPath $LogPath
     }
 
-    # 7. Pulizia Cestino (Opzionale)
+    # 8. Pulizia Cestino (Opzionale)
     if ($config.EmptyRecycleBin) {
-        Write-Log -Level INFO -Message "[7/7] Pulizia del Cestino in corso..." -LogPath $LogPath
+        Write-Log -Level INFO -Message "[8/8] Pulizia del Cestino in corso..." -LogPath $LogPath
         try {
             $shell = New-Object -ComObject Shell.Application
             $recycleBin = $shell.Namespace(10)

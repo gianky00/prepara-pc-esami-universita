@@ -1,29 +1,46 @@
 @echo off
-REM Avvia lo script di ripristino post-esame in modalità professionale.
-REM Importa il modulo ExamPrep e chiama la funzione Start-ExamRestore.
+setlocal
+
+:: =================================================================
+::  AVVIO RIPRISTINO POST-ESAME - v5.0
+:: =================================================================
+::  Questo file avvia lo script di ripristino post-esame con
+::  privilegi di amministratore.
+:: =================================================================
 
 echo.
-echo =======================================================
-echo      AVVIO RIPRISTINO POST-ESAME - Modalita' Professionale
-echo =======================================================
+echo  [INFO] Avvio Ripristino Post-Esame in corso...
 echo.
-echo Verra' aperta una nuova finestra di PowerShell per eseguire le operazioni.
-echo Questa finestra si chiudera' al termine.
+echo  [!] Potrebbe essere richiesta l'autorizzazione di Amministratore (UAC).
 echo.
-
-REM Definisce il comando PowerShell da eseguire.
-REM -ExecutionPolicy Bypass: Consente l'esecuzione dello script.
-REM -Command "& {...}": Esegue un blocco di comandi.
-REM   Import-Module: Carica il nostro modulo ExamPrep.
-REM   Start-ExamRestore: Esegue la funzione di ripristino.
-REM   -LogPath: Specifica dove salvare il file di log.
-REM   -Verbose: Mostra tutti i dettagli delle operazioni a schermo.
-set "ps_command=powershell.exe -ExecutionPolicy Bypass -Command \"& {Import-Module -Name '%~dp0ExamPrep' -Force; Start-ExamRestore -LogPath '%~dp0Exam-Prep.log' -Verbose}\""
-
-REM Esegue lo script PowerShell con privilegi elevati.
-REM Lo script PowerShell stesso gestirà la richiesta di elevazione (UAC).
-%ps_command%
-
-echo.
-echo Operazione terminata. Controlla la finestra di PowerShell e il file Exam-Prep.log per i dettagli.
+echo  =================================================================
 pause
+cls
+
+:: --- Richiesta Privilegi di Amministratore ---
+>nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
+if '%errorlevel%' NEQ '0' (
+    echo [ERRORE] Privilegi di amministratore richiesti.
+    echo          Tentativo di riavvio automatico dello script...
+    powershell.exe -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    goto :eof
+)
+:: --- Esecuzione con Privilegi Ottenuti ---
+
+echo [SUCCESS] Privilegi di amministratore ottenuti.
+echo [INFO]    Avvio del modulo PowerShell...
+echo.
+
+:: Definisce il percorso del modulo e del file di log
+set "MODULE_PATH=%~dp0ExamPrep"
+set "LOG_PATH=%~dp0Exam-Prep.log"
+
+:: Comando PowerShell da eseguire
+:: -NoExit: Mantiene la finestra di PowerShell aperta al termine.
+:: -Command: Esegue il blocco di comandi specificato.
+set "ps_command=Import-Module -Name '%MODULE_PATH%' -Force; Start-ExamRestore -LogPath '%LOG_PATH%' -Verbose"
+
+:: Avvia PowerShell con il comando
+powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -Command "&{%ps_command%}"
+
+endlocal
