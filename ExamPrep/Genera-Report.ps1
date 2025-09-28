@@ -116,7 +116,8 @@ $reportContent += @"
 
 # Scrive l'intero contenuto nel file di output con la codifica corretta
 try {
-    $reportContent | Out-File -FilePath $outputFile -Encoding utf8BOM -Force
+    # Modificato in 'utf8' per massima compatibilità. PowerShell 5.1 su Windows aggiunge il BOM per default con -Encoding utf8.
+    $reportContent | Out-File -FilePath $outputFile -Encoding utf8 -Force
     Write-Host "Report generato con successo: $outputFile"
 }
 catch {

@@ -43,7 +43,8 @@ echo Segui le istruzioni a schermo.
 echo.
 
 :: Avvia PowerShell, importa il modulo ed esegue la funzione di preparazione.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& {Import-Module '%~dp0ExamPrep\ExamPrep.psm1'; Start-ExamPreparation}"
+:: Si importa il modulo puntando alla cartella per usare il manifesto (.psd1), metodo più robusto.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& {Import-Module '%~dp0ExamPrep'; Start-ExamPreparation}"
 
 echo.
 echo =================================================================
