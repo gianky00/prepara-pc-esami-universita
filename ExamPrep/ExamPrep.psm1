@@ -333,7 +333,8 @@ function Start-ExamRestore {
                 Write-Log -Level WARN "   - Non è stato possibile forzare l'aggiornamento degli effetti visivi. Potrebbe essere necessario un riavvio."
             }
         }
-        Remove-NetQosPolicy -Name "ExamPrepProctoring" -Confirm:$false -ErrorAction SilentlyContinue; Write-Log -Level SUCCESS "   - Policy QoS rimossa."
+        Remove-NetQosPolicy -Name "ExamPrepProctoring" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        Write-Log -Level SUCCESS "   - Policy QoS rimossa."
         if ($backupData.Network.InterfaceGuid) {
             $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$($backupData.Network.InterfaceGuid)"
             if (Test-Path $nagleKeyPath) {
@@ -355,9 +356,14 @@ function Start-ExamRestore {
     if ($backupData.Services) {
         foreach ($serviceInfo in $backupData.Services) {
             try {
+                # CORREZIONE: Traduce il valore 'Auto' restituito da WMI nel valore 'Automatic'
+                # richiesto dal cmdlet Set-Service per garantire la compatibilità.
+                $startupType = $serviceInfo.StartMode
+                if ($startupType -eq 'Auto') { $startupType = 'Automatic' }
+
                 # Ripristina prima la modalità di avvio
-                Set-Service -Name $serviceInfo.Name -StartupType $serviceInfo.StartMode -ErrorAction Stop
-                Write-Log -Level SUCCESS "   - Modalità di avvio per '$($serviceInfo.Name)' ripristinata a '$($serviceInfo.StartMode)'."
+                Set-Service -Name $serviceInfo.Name -StartupType $startupType -ErrorAction Stop
+                Write-Log -Level SUCCESS "   - Modalità di avvio per '$($serviceInfo.Name)' ripristinata a '$($startupType)'."
 
                 # Se il servizio era in esecuzione, prova a riavviarlo
                 if ($serviceInfo.State -eq 'Running') {
