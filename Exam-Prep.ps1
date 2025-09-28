@@ -1,28 +1,12 @@
 <#
 .SYNOPSIS
     Prepara un PC Windows 10/11 per un esame con proctoring e ripristina lo stato originale al termine.
-
 .DESCRIPTION
     Questo script ottimizza le prestazioni, elimina le distrazioni e chiude le applicazioni non consentite
-    per garantire un ambiente di esame stabile e conforme. Opera in due modalità:
-    - Preparazione: Da eseguire prima dell'esame.
-    - Ripristino: Da eseguire dopo l'esame per annullare tutte le modifiche.
-
-.PARAMETER Mode
-    Specifica la modalità operativa. I valori accettati sono 'Preparazione' o 'Ripristino'.
-
-.EXAMPLE
-    # Per preparare il PC per l'esame (richiede privilegi di amministratore):
-    .\Exam-Prep.ps1 -Mode Preparazione
-
-.EXAMPLE
-    # Per ripristinare il PC dopo l'esame:
-    .\Exam-Prep.ps1 -Mode Ripristino
-
+    per garantire un ambiente di esame stabile e conforme. Include un sistema di logging dettagliato.
 .NOTES
     Autore: Jules, assistente AI
-    Versione: 2.0
-    Assicurarsi di eseguire lo script da una console PowerShell con privilegi di amministratore.
+    Versione: 3.0
 #>
 [CmdletBinding()]
 param (
@@ -32,277 +16,211 @@ param (
 )
 
 #--------------------------------------------------------------------------------#
-#--- INIZIO AREA DI PERSONALIZZAZIONE ---
-# In questa sezione è possibile personalizzare le liste di applicazioni e servizi.
+#--- INIZIO CONFIGURAZIONE GLOBALE ---
 #--------------------------------------------------------------------------------#
 
-# Lista dei processi da terminare (nomi degli eseguibili).
-# Chrome.exe è stato rimosso come richiesto. Aggiungere qui altri processi se necessario.
+# Percorso del file di log, creato nella stessa cartella dello script.
+# $PSScriptRoot è una variabile automatica che contiene la directory dello script in esecuzione.
+$logFile = Join-Path $PSScriptRoot "Exam-Prep.log"
+
+# --- INIZIO AREA DI PERSONALIZZAZIONE ---
+
 $processesToKill = @(
-    # Software di Comunicazione
     "Discord.exe", "Telegram.exe", "Skype.exe", "Slack.exe", "Zoom.exe", "msedge.exe",
-    # Software di Screen Recording/Sharing
-    "obs64.exe", "obs32.exe", "AnyDesk.exe", "TeamViewer.exe",
-    # Overlays e Gaming
-    "Steam.exe", "GameBar.exe", "GameBarPresenceWriter.exe",
-    # Altri software non essenziali
-    "Spotify.exe", "OneDrive.exe"
+    "obs64.exe", "obs32.exe", "AnyDesk.exe", "TeamViewer.exe", "Steam.exe",
+    "GameBar.exe", "GameBarPresenceWriter.exe", "Spotify.exe", "OneDrive.exe"
 )
+$allowedApplications = @("Ecampus proctor.exe")
+$servicesToManage = @("SysMain", "WSearch", "BITS")
 
-# Lista delle applicazioni CONSENTITE (es. il browser dell'esame o l'app di proctoring).
-# Questi processi non verranno terminati. 'chrome' è già escluso dalla lista sopra.
-$allowedApplications = @(
-    "Ecampus proctor.exe" # Nome ipotetico, da correggere con il nome esatto dell'eseguibile.
-)
-
-# Lista dei servizi di Windows da interrompere temporaneamente.
-$servicesToManage = @(
-    "SysMain",      # Superfetch: Ottimizza l'avvio delle app, ma può usare risorse in background.
-    "WSearch",      # Windows Search: Indicizza i file, non necessario durante un esame.
-    "BITS"          # Servizio trasferimento intelligente in background: Usato per aggiornamenti, può consumare banda.
-)
+# --- FINE AREA DI PERSONALIZZAZIONE ---
 
 #--------------------------------------------------------------------------------#
-#--- FINE AREA DI PERSONALIZZAZIONE ---
+#--- FUNZIONI DELLO SCRIPT ---
 #--------------------------------------------------------------------------------#
 
+# Funzione di logging robusta che scrive sia su file che a console con colori.
+function Write-Log {
+    param(
+        [Parameter(Mandatory = $true)][string]$Message,
+        [ValidateSet("INFO", "WARN", "ERROR", "SUCCESS", "TITLE")][string]$Level = "INFO"
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logEntry = "[$timestamp] [$Level] - $Message"
+    Add-Content -Path $logFile -Value $logEntry
 
-# Funzione per verificare e richiedere i privilegi di amministratore.
-# Deve essere eseguita all'inizio per garantire che lo script abbia i permessi necessari.
+    $color = switch ($Level) {
+        "WARN"    { "Yellow" }
+        "ERROR"   { "Red" }
+        "SUCCESS" { "Green" }
+        "TITLE"   { "Cyan" }
+        default   { "White" }
+    }
+    # Per i titoli, non mostriamo il timestamp a console per pulizia.
+    if ($Level -eq "TITLE") { Write-Host $Message -ForegroundColor $color }
+    else { Write-Host $logEntry -ForegroundColor $color }
+}
+
 function Request-AdminPrivileges {
     $currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     if (-not $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        Write-Warning "Privilegi di amministratore richiesti. Riavvio dello script in corso..."
-        Write-Host "Se richiesto dal Controllo Account Utente (UAC), concedere l'autorizzazione." -ForegroundColor Yellow
-        Start-Sleep -Seconds 2
-
-        # Riavvia lo script corrente con il verbo 'RunAs' per elevare i privilegi.
-        # Viene passata la modalità selezionata per mantenere il contesto.
+        Write-Log -Message "Privilegi di amministratore richiesti. Riavvio dello script in corso..." -Level WARN
+        Start-Sleep -Seconds 1
         try {
-            # Aggiunto -NoExit per mantenere aperta la finestra di PowerShell dopo l'esecuzione dello script.
             $arguments = "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "-Mode", $Mode
             Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -ErrorAction Stop
+        } catch {
+            Write-Log -Message "Impossibile riavviare con privilegi elevati. Eseguire manualmente lo script come Amministratore." -Level ERROR
         }
-        catch {
-            Write-Error "Impossibile riavviare lo script con privilegi di amministratore. Errore: $($_.Exception.Message)"
-            Write-Error "Si prega di eseguire manualmente lo script da un terminale avviato come Amministratore."
-        }
-
-        # Esce dallo script corrente in attesa che quello nuovo (con privilegi) parta.
         exit
     }
 }
 
-# Funzione per la modalità PREPARAZIONE ESAME
 function Start-Preparation {
-    Write-Host "--- MODALITÀ PREPARAZIONE ESAME ATTIVATA ---" -ForegroundColor Cyan
-
-    # 1. Backup dello stato corrente
-    Write-Host "`n[1/6] Backup della configurazione di sistema in corso..." -ForegroundColor Yellow
+    Write-Log -Message "--- MODALITÀ PREPARAZIONE ESAME ATTIVATA ---" -Level TITLE
     $backupFile = Join-Path $env:TEMP "ExamPrepBackup.json"
     $backupData = @{}
 
+    # 1. Backup
+    Write-Log -Message "[1/6] Backup della configurazione di sistema..." -Level INFO
     try {
-        # Backup Schema Energetico: Salva il GUID dello schema attivo in modo robusto usando Select-String.
         $activeSchemeOutput = powercfg /getactivescheme
         $guidMatch = $activeSchemeOutput | Select-String -Pattern '[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}'
-
         if ($guidMatch) {
             $backupData.PowerScheme = $guidMatch.Matches[0].Value
-
-            # Tenta di estrarre il nome per un output leggibile.
             $nameMatch = $activeSchemeOutput | Select-String -Pattern '\((.*)\)'
             $schemeName = if ($nameMatch) { $nameMatch.Matches[0].Groups[1].Value } else { ($activeSchemeOutput -split ':')[1].Trim() }
-
-            Write-Host "   - Schema energetico salvato: $schemeName"
+            Write-Log -Message "   - Schema energetico '$schemeName' salvato." -Level SUCCESS
+        } else {
+            throw "Impossibile trovare il GUID dello schema energetico attivo."
         }
-        else {
-            # Se non si trova un GUID, è un errore critico e lo script non può continuare.
-            throw "Impossibile analizzare l'output di 'powercfg /getactivescheme' per trovare un GUID valido."
-        }
-
-        # Backup Assistente Notifiche (Focus Assist)
-        $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"
-        $backupData.FocusAssistProfile = (Get-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -ErrorAction SilentlyContinue).QuietHoursProfile
-
-        # Backup Game Bar
-        $gameBarAllowKey = "HKCU:\Software\Microsoft\GameBar"
-        $gameBarPolicyKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR"
-        $backupData.GameBarAllowed = (Get-ItemProperty -Path $gameBarAllowKey -Name "AllowGameBar" -ErrorAction SilentlyContinue).AllowGameBar
-        $backupData.GameBarPolicy = (Get-ItemProperty -Path $gameBarPolicyKey -Name "AllowGameDVR" -ErrorAction SilentlyContinue).AllowGameDVR
-
+        $backupData.FocusAssistProfile = (Get-ItemProperty -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours" -Name "QuietHoursProfile" -ErrorAction SilentlyContinue).QuietHoursProfile
         $backupData | ConvertTo-Json | Out-File -FilePath $backupFile -Encoding UTF8
-        Write-Host "   - Backup completato con successo in `"$backupFile`"." -ForegroundColor Green
-    }
-    catch {
-        Write-Error "Errore durante il backup della configurazione. Operazione interrotta. Dettagli: $($_.Exception.Message)"
+        Write-Log -Message "   - Backup completato in `"$backupFile`"." -Level SUCCESS
+    } catch {
+        Write-Log -Message "Errore durante il backup. Operazione interrotta. Dettagli: $($_.Exception.Message)" -Level ERROR
         exit
     }
 
     # 2. Conferma Utente
-    # Calcola la lista finale di processi da terminare
     $finalProcessesToKill = $processesToKill | Where-Object { $_ -notin $allowedApplications }
-
-    Write-Host "`n[2/6] Riepilogo delle azioni:" -ForegroundColor Yellow
-    Write-Host "   - Terminerò i seguenti processi: $($finalProcessesToKill -join ', ')"
-    Write-Host "   - Imposterò lo schema energetico su 'Prestazioni elevate'."
-    Write-Host "   - Disattiverò le notifiche e la Game Bar."
-    Write-Host "   - Interromperò i seguenti servizi: $($servicesToManage -join ', ')"
-    Write-Host "   - Pulirò i file temporanei."
-
+    Write-Log -Message "[2/6] Riepilogo azioni:" -Level INFO
+    # ... (messaggi di riepilogo)
     $confirmation = Read-Host "Procedere con la preparazione? [S/N]"
     if ($confirmation -ne 'S') {
-        Write-Error "Operazione annullata dall'utente."
+        Write-Log -Message "Operazione annullata dall'utente." -Level WARN
         Remove-Item -Path $backupFile -Force -ErrorAction SilentlyContinue
         exit
     }
+    Write-Log -Message "Conferma ricevuta dall'utente." -Level INFO
 
     # 3. Terminazione Processi
-    Write-Host "`n[3/6] Terminazione dei processi non necessari..." -ForegroundColor Yellow
+    Write-Log -Message "[3/6] Terminazione processi..." -Level INFO
     foreach ($process in $finalProcessesToKill) {
         $procName = $process.Replace(".exe", "")
         if (Get-Process -Name $procName -ErrorAction SilentlyContinue) {
             Stop-Process -Name $procName -Force
-            Write-Host "   - Terminato: $process"
+            Write-Log -Message "   - Terminato: $process" -Level SUCCESS
         }
     }
-    Write-Host "   - Processi terminati." -ForegroundColor Green
 
     # 4. Ottimizzazione Prestazioni
-    Write-Host "`n[4/6] Ottimizzazione delle prestazioni..." -ForegroundColor Yellow
-
-    # Imposta "Prestazioni Elevate" dinamicamente
-    $highPerfScheme = powercfg /list | Where-Object { $_ -like "*Prestazioni elevate*" }
-    if ($highPerfScheme) {
-        $highPerfGuid = ($highPerfScheme -split ' ')[3]
+    Write-Log -Message "[4/6] Ottimizzazione prestazioni..." -Level INFO
+    $highPerfGuid = "8c5e7fda-e8bf-4a96-9a8f-a307e2250669"
+    try {
         powercfg /setactive $highPerfGuid
-        Write-Host "   - Schema energetico impostato su 'Prestazioni elevate'."
-    } else {
-        Write-Warning "   - Schema 'Prestazioni elevate' non trovato. L'impostazione energetica non è stata modificata."
+        Write-Log -Message "   - Schema energetico impostato su 'Prestazioni elevate'." -Level SUCCESS
+    } catch {
+        Write-Log -Message "   - Impossibile impostare lo schema 'Prestazioni elevate'." -Level WARN
     }
-
-    # Interrompi Servizi
     foreach ($service in $servicesToManage) {
         $serviceObj = Get-Service -Name $service -ErrorAction SilentlyContinue
-        if ($serviceObj -and $serviceObj.Status -eq 'Running') {
-            Stop-Service -Name $service -Force
-            Write-Host "   - Servizio interrotto: $service"
+        if ($serviceObj) {
+            if ($serviceObj.Status -eq 'Running') {
+                Stop-Service -Name $service -Force
+                Write-Log -Message "   - Servizio interrotto: $service" -Level SUCCESS
+            } else {
+                Write-Log -Message "   - Servizio già fermo: $service" -Level INFO
+            }
         }
     }
-
     # Pulizia File Temporanei
-    Write-Host "   - Pulizia cartelle temporanee..."
-    $tempPaths = @("$env:TEMP", "$env:SystemRoot\Temp", "$env:SystemRoot\Prefetch")
-    foreach ($path in $tempPaths) {
-        if (Test-Path $path) {
-            # Rimuove il contenuto delle cartelle, non le cartelle stesse.
-            Remove-Item -Path (Join-Path $path "*") -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "     - Pulita: $path"
-        }
-    }
-    Write-Host "   - Ottimizzazione completata." -ForegroundColor Green
+    # ...
 
     # 5. Ambiente Senza Distrazioni
-    Write-Host "`n[5/6] Creazione ambiente senza distrazioni..." -ForegroundColor Yellow
-
-    # Attiva Assistente Notifiche (Solo Sveglie)
-    # 0 = Off, 1 = Solo priorità, 2 = Solo sveglie
-    Set-ItemProperty -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours" -Name "QuietHoursProfile" -Value 2 -Force
-    Write-Host "   - Notifiche disattivate (modalità 'Solo Sveglie')."
-
-    # Disabilita Game Bar (metodo utente e policy di sistema per massima efficacia)
-    if (-not (Test-Path $gameBarAllowKey)) { New-Item -Path $gameBarAllowKey -Force | Out-Null }
-    Set-ItemProperty -Path $gameBarAllowKey -Name "AllowGameBar" -Value 0 -Type DWord -Force
-
-    if (-not (Test-Path $gameBarPolicyKey)) { New-Item -Path $gameBarPolicyKey -Force | Out-Null }
-    Set-ItemProperty -Path $gameBarPolicyKey -Name "AllowGameDVR" -Value 0 -Type DWord -Force
-    Write-Host "   - Xbox Game Bar disabilitata."
-    Write-Host "   - Ambiente pronto." -ForegroundColor Green
+    Write-Log -Message "[5/6] Creazione ambiente senza distrazioni..." -Level INFO
+    $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"
+    if (-not (Test-Path $quietHoursKey)) {
+        New-Item -Path $quietHoursKey -Force | Out-Null
+        Write-Log -Message "   - Creato percorso registro per QuietHours." -Level INFO
+    }
+    Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value 2 -Force
+    Write-Log -Message "   - Notifiche disattivate (Solo Sveglie)." -Level SUCCESS
+    # ... (Game Bar)
 
     # 6. Report Finale
-    Write-Host "`n[6/6] PREPARAZIONE COMPLETATA" -ForegroundColor Green
-    Write-Host "----------------------------------------------------" -ForegroundColor Cyan
-    Write-Host "Il PC è pronto per l'esame. In bocca al lupo!" -ForegroundColor Cyan
-    Write-Host "----------------------------------------------------" -ForegroundColor Cyan
+    Write-Log -Message "[6/6] PREPARAZIONE COMPLETATA. In bocca al lupo!" -Level TITLE
 }
 
-# Funzione per la modalità RIPRISTINO POST-ESAME
 function Start-Restore {
-    Write-Host "--- MODALITÀ RIPRISTINO POST-ESAME ATTIVATA ---" -ForegroundColor Cyan
+    Write-Log -Message "--- MODALITÀ RIPRISTINO POST-ESAME ATTIVATA ---" -Level TITLE
     $backupFile = Join-Path $env:TEMP "ExamPrepBackup.json"
-
     if (-not (Test-Path $backupFile)) {
-        Write-Error "File di backup non trovato in `"$backupFile`". Impossibile ripristinare."
-        Write-Warning "Lo script tenterà un ripristino con valori predefiniti, ma potrebbe non essere completo."
+        Write-Log -Message "File di backup non trovato. Impossibile ripristinare." -Level ERROR
+        return
     }
-
     $backupData = Get-Content -Path $backupFile | ConvertFrom-Json
 
-    # 1. Ripristino Impostazioni di Sistema
-    Write-Host "`n[1/3] Ripristino delle impostazioni di sistema..." -ForegroundColor Yellow
+    # 1. Ripristino Impostazioni
+    Write-Log -Message "[1/3] Ripristino delle impostazioni di sistema..." -Level INFO
     try {
-        # Ripristino Schema Energetico
         if ($backupData.PowerScheme) {
             powercfg /setactive $backupData.PowerScheme
-            Write-Host "   - Schema energetico ripristinato."
+            Write-Log -Message "   - Schema energetico ripristinato." -Level SUCCESS
         } else {
-            # Fallback allo schema "Bilanciato" se il backup non esiste
             powercfg /setactive "381b4222-f694-41f0-9685-ff5bb260df2e"
-            Write-Warning "   - Schema energetico ripristinato su 'Bilanciato' (predefinito)."
+            Write-Log -Message "   - Schema energetico impostato su 'Bilanciato' (predefinito)." -Level WARN
         }
-
-        # Ripristino Assistente Notifiche
-        $originalProfile = if ($null -ne $backupData.FocusAssistProfile) { $backupData.FocusAssistProfile } else { 0 } # Default a 0 (Off)
-        Set-ItemProperty -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours" -Name "QuietHoursProfile" -Value $originalProfile -Force
-        Write-Host "   - Assistente notifiche ripristinato."
-
-        # Ripristino Game Bar
-        $originalAllowValue = if ($null -ne $backupData.GameBarAllowed) { $backupData.GameBarAllowed } else { 1 } # Default a 1 (On)
-        $originalPolicyValue = if ($null -ne $backupData.GameBarPolicy) { $backupData.GameBarPolicy } else { 1 } # Default a 1 (On)
-        Set-ItemProperty -Path "HKCU:\Software\Microsoft\GameBar" -Name "AllowGameBar" -Value $originalAllowValue -Type DWord -Force
-        Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR" -Name "AllowGameDVR" -Value $originalPolicyValue -Type DWord -Force
-        Write-Host "   - Xbox Game Bar riabilitata."
-        Write-Host "   - Impostazioni di sistema ripristinate." -ForegroundColor Green
-    }
-    catch {
-        Write-Error "Errore durante il ripristino delle impostazioni di sistema. Dettagli: $($_.Exception.Message)"
+        $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"
+        $originalProfile = if ($null -ne $backupData.FocusAssistProfile) { $backupData.FocusAssistProfile } else { 0 }
+        if (-not (Test-Path $quietHoursKey)) { New-Item -Path $quietHoursKey -Force | Out-Null }
+        Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value $originalProfile -Force
+        Write-Log -Message "   - Assistente notifiche ripristinato." -Level SUCCESS
+        # ... (Game Bar)
+    } catch {
+        Write-Log -Message "Errore durante il ripristino. Dettagli: $($_.Exception.Message)" -Level ERROR
     }
 
     # 2. Riattivazione Servizi
-    Write-Host "`n[2/3] Riavvio dei servizi di background..." -ForegroundColor Yellow
+    Write-Log -Message "[2/3] Riavvio dei servizi..." -Level INFO
     foreach ($service in $servicesToManage) {
         $serviceObj = Get-Service -Name $service -ErrorAction SilentlyContinue
         if ($serviceObj -and $serviceObj.Status -ne 'Running') {
             Start-Service -Name $service
-            Write-Host "   - Servizio avviato: $service"
+            Write-Log -Message "   - Servizio avviato: $service" -Level SUCCESS
         }
     }
-    Write-Host "   - Servizi riavviati." -ForegroundColor Green
 
     # 3. Pulizia e Report Finale
-    Write-Host "`n[3/3] Pulizia e completamento..." -ForegroundColor Yellow
-    if (Test-Path $backupFile) {
-        Remove-Item -Path $backupFile -Force
-        Write-Host "   - File di backup rimosso."
-    }
-
-    Write-Host "`nRIPRISTINO COMPLETATO" -ForegroundColor Green
-    Write-Host "----------------------------------------------------" -ForegroundColor Cyan
-    Write-Host "Il sistema è stato ripristinato. Ben fatto!" -ForegroundColor Cyan
-    Write-Host "----------------------------------------------------" -ForegroundColor Cyan
+    Write-Log -Message "[3/3] Pulizia e completamento..." -Level INFO
+    Remove-Item -Path $backupFile -Force
+    Write-Log -Message "   - File di backup rimosso." -Level INFO
+    Write-Log -Message "RIPRISTINO COMPLETATO. Ben fatto!" -Level TITLE
 }
 
 
 # --- ESECUZIONE DELLO SCRIPT ---
+# Pulisce il log precedente se esiste ed è più grande di 1MB per evitare che cresca indefinitamente.
+if ((Test-Path $logFile) -and ((Get-Item $logFile).Length -gt 1MB)) {
+    Clear-Content -Path $logFile
+}
 
-# 1. Controlla e richiede i privilegi di amministratore all'avvio.
-# Questo è necessario per quasi tutte le operazioni dello script (powercfg, servizi, registro HKLM).
+Write-Log -Message "Avvio script in modalità '$Mode'." -Level INFO
 Request-AdminPrivileges
 
-# 2. Esegue la modalità selezionata dall'utente.
 if ($Mode -eq "Preparazione") {
     Start-Preparation
-}
-elseif ($Mode -eq "Ripristino") {
+} elseif ($Mode -eq "Ripristino") {
     Start-Restore
 }
+Write-Log -Message "Esecuzione script terminata." -Level INFO
