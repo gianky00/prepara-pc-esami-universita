@@ -103,10 +103,23 @@ function Start-Preparation {
     $backupData = @{}
 
     try {
-        # Backup Schema Energetico: Salva il GUID dello schema attualmente attivo.
-        $activeScheme = powercfg /getactivescheme
-        $backupData.PowerScheme = ($activeScheme -split ' ')[3]
-        Write-Host "   - Schema energetico salvato: $($activeScheme -split '`(')[1].Trim(')')"
+        # Backup Schema Energetico: Salva il GUID dello schema attivo in modo robusto usando Select-String.
+        $activeSchemeOutput = powercfg /getactivescheme
+        $guidMatch = $activeSchemeOutput | Select-String -Pattern '[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}'
+
+        if ($guidMatch) {
+            $backupData.PowerScheme = $guidMatch.Matches[0].Value
+
+            # Tenta di estrarre il nome per un output leggibile.
+            $nameMatch = $activeSchemeOutput | Select-String -Pattern '\((.*)\)'
+            $schemeName = if ($nameMatch) { $nameMatch.Matches[0].Groups[1].Value } else { ($activeSchemeOutput -split ':')[1].Trim() }
+
+            Write-Host "   - Schema energetico salvato: $schemeName"
+        }
+        else {
+            # Se non si trova un GUID, è un errore critico e lo script non può continuare.
+            throw "Impossibile analizzare l'output di 'powercfg /getactivescheme' per trovare un GUID valido."
+        }
 
         # Backup Assistente Notifiche (Focus Assist)
         $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"
