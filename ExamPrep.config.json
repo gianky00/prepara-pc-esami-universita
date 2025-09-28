@@ -1,0 +1,29 @@
+{
+  "ProcessesToKill": [
+    "Discord.exe",
+    "Telegram.exe",
+    "Skype.exe",
+    "Slack.exe",
+    "Zoom.exe",
+    "msedge.exe",
+    "obs64.exe",
+    "obs32.exe",
+    "AnyDesk.exe",
+    "TeamViewer.exe",
+    "Steam.exe",
+    "GameBar.exe",
+    "GameBarPresenceWriter.exe",
+    "Spotify.exe",
+    "OneDrive.exe"
+  ],
+  "AllowedApplications": [
+    "chrome.exe",
+    "Ecampus proctor.exe"
+  ],
+  "ServicesToManage": [
+    "SysMain",
+    "WSearch",
+    "BITS"
+  ],
+  "EmptyRecycleBin": true
+}
