@@ -29,7 +29,8 @@ function Ensure-Admin {
 # --- Blocco Principale ---
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $configPath = Join-Path $scriptRoot "ExamPrep.config.json"
-$modulePath = Join-Path $scriptRoot "ExamPrep" "ExamPrep.psm1"
+# Costruisce correttamente il percorso al file del modulo, annidando Join-Path
+$modulePath = Join-Path -Path (Join-Path -Path $scriptRoot -ChildPath "ExamPrep") -ChildPath "ExamPrep.psm1"
 $logDir = Join-Path $env:LOCALAPPDATA "ExamPrep"
 $logPath = Join-Path $logDir "ExamPrep_Log.txt"
 $reportPath = Join-Path $scriptRoot "Report_PC_Definitivo.txt"
