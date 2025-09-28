@@ -54,9 +54,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0ExamPrep\Genera-Re
 
 echo.
 echo =================================================================
-echo  Report generato con successo!
+echo  Esecuzione terminata.
 echo =================================================================
 echo.
+echo Lo script ha terminato la sua esecuzione.
+echo Controlla i messaggi qui sopra per l'esito.
+echo.
 echo Premi un tasto per chiudere questa finestra.
-pause > nul
+pause
 exit

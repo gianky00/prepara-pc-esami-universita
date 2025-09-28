@@ -51,9 +51,10 @@ echo =================================================================
 echo         OPERAZIONE DI PREPARAZIONE COMPLETATA
 echo =================================================================
 echo.
-echo Il tuo PC e' pronto per l'esame.
-echo Al termine della prova, ricorda di eseguire "Avvia-Ripristino.bat".
+echo.
+echo Lo script ha terminato la sua esecuzione.
+echo Controlla i messaggi qui sopra per eventuali errori.
 echo.
 echo Premi un tasto per chiudere questa finestra.
-pause > nul
+pause
 exit
