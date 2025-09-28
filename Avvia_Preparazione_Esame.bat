@@ -2,20 +2,24 @@
 setlocal
 
 :: =================================================================
-::  AVVIO PREPARAZIONE ESAME - v5.0 (Modalita' Interattiva)
+::  AVVIO PREPARAZIONE ESAME - v6.0 (Modalita' Élite)
 :: =================================================================
 ::  Questo file avvia lo script di preparazione per l'esame con
-::  privilegi di amministratore e in modo interattivo.
+::  privilegi di amministratore e ottimizzazioni avanzate.
 :: =================================================================
 
 echo.
 echo  [INFO] Avvio Preparazione Esame in corso...
 echo.
+echo  [!] Verranno applicate ottimizzazioni di livello ÉLITE per:
+echo      - CPU e GPU (massima priorita' al proctoring)
+echo      - Sistema e RAM (interfaccia piu' reattiva)
+echo      - Rete (minima latenza con QoS e altre tecniche)
+echo.
 echo  [!] Potrebbe essere richiesta l'autorizzazione di Amministratore (UAC).
 echo.
-echo  [?] Lo script scansionera' i processi in esecuzione.
-echo      Se trovera' programmi non ancora configurati, ti chiedera'
-echo      cosa fare (Chiudi, Ignora, o salva la scelta per il futuro).
+echo  [?] Lo script scansionera' i processi. Se trovera' programmi
+echo      non configurati, ti chiedera' cosa fare.
 echo.
 echo  =================================================================
 pause
@@ -41,8 +45,6 @@ set "CONFIG_PATH=%~dp0ExamPrep.config.json"
 set "LOG_PATH=%~dp0Exam-Prep.log"
 
 :: Comando PowerShell da eseguire
-:: -NoExit: Mantiene la finestra di PowerShell aperta al termine.
-:: -Command: Esegue il blocco di comandi specificato.
 set "ps_command=Import-Module -Name '%MODULE_PATH%' -Force; Start-ExamPreparation -ConfigPath '%CONFIG_PATH%' -LogPath '%LOG_PATH%' -Verbose"
 
 :: Avvia PowerShell con il comando

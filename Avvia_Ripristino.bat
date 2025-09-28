@@ -2,14 +2,17 @@
 setlocal
 
 :: =================================================================
-::  AVVIO RIPRISTINO POST-ESAME - v5.0
+::  AVVIO RIPRISTINO POST-ESAME - v9.0 (Modalita' Élite)
 :: =================================================================
 ::  Questo file avvia lo script di ripristino post-esame con
-::  privilegi di amministratore.
+::  privilegi di amministratore per annullare tutte le ottimizzazioni.
 :: =================================================================
 
 echo.
 echo  [INFO] Avvio Ripristino Post-Esame in corso...
+echo.
+echo  [!] Verranno ripristinate tutte le impostazioni modificate
+echo      durante la fase di preparazione.
 echo.
 echo  [!] Potrebbe essere richiesta l'autorizzazione di Amministratore (UAC).
 echo.
@@ -31,14 +34,14 @@ echo [SUCCESS] Privilegi di amministratore ottenuti.
 echo [INFO]    Avvio del modulo PowerShell...
 echo.
 
-:: Definisce il percorso del modulo e del file di log
+:: Definisce il percorso del modulo e dei file
 set "MODULE_PATH=%~dp0ExamPrep"
+set "CONFIG_PATH=%~dp0ExamPrep.config.json"
 set "LOG_PATH=%~dp0Exam-Prep.log"
 
 :: Comando PowerShell da eseguire
-:: -NoExit: Mantiene la finestra di PowerShell aperta al termine.
-:: -Command: Esegue il blocco di comandi specificato.
-set "ps_command=Import-Module -Name '%MODULE_PATH%' -Force; Start-ExamRestore -LogPath '%LOG_PATH%' -Verbose"
+:: La funzione di ripristino ora richiede anche il ConfigPath per ripristinare la priorità del processo.
+set "ps_command=Import-Module -Name '%MODULE_PATH%' -Force; Start-ExamRestore -ConfigPath '%CONFIG_PATH%' -LogPath '%LOG_PATH%' -Verbose"
 
 :: Avvia PowerShell con il comando
 powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -Command "&{%ps_command%}"

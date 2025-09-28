@@ -17,13 +17,19 @@
     "OneDrive.exe"
   ],
   "AllowedApplications": [
-    "chrome.exe",
-    "Ecampus proctor.exe"
+    "chrome.exe"
   ],
   "ServicesToManage": [
     "SysMain",
     "WSearch",
-    "BITS"
+    "BITS",
+    "DoSvc"
   ],
-  "EmptyRecycleBin": true
+  "ProctoringAppName": "Ecampus proctor.exe",
+  "EmptyRecycleBin": true,
+  "AdvancedOptimizations": {
+    "EnablePCPerformance": true,
+    "EnableNetworkPerformance": true,
+    "DisableNagleAlgorithm": true
+  }
 }
