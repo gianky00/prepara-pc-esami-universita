@@ -1,8 +1,8 @@
 # =================================================================
-#  GENERATORE DI REPORT DI SISTEMA - v11.0 (PowerShell Stabile)
+#  GENERATORE DI REPORT DI SISTEMA - v12.0 (Modern PowerShell)
 # =================================================================
-#  Questo script raccoglie informazioni e gestisce gli errori in
-#  modo robusto, scrivendo direttamente su file per massima stabilità.
+#  Questo script usa i moderni cmdlet di PowerShell (Get-CimInstance)
+#  per la massima affidabilità e compatibilità.
 # =================================================================
 
 $reportFile = Join-Path $PSScriptRoot "Report_PC_Definitivo.txt"
@@ -21,28 +21,29 @@ Function Run-And-Log {
         [scriptblock]$Command
     )
 
-    # Scrive l'intestazione della sezione
     Add-Content -Path $reportFile -Value "`n`n--- $Title ---`n"
 
-    # Esegue il comando e reindirizza tutto l'output (standard e errori) al file
     try {
-        & $Command *>> $reportFile
+        # Esegue il comando e cattura l'output formattato come stringa
+        $output = & $Command | Out-String
+        Add-Content -Path $reportFile -Value $output
         Write-Host "[SUCCESS] Report per '$Title' completato."
     } catch {
-        Add-Content -Path $reportFile -Value "ERRORE CRITICO DURANTE L'ESECUZIONE DI '$Title': $($_.Exception.Message)"
+        $errorMessage = "ERRORE CRITICO DURANTE L'ESECUZIONE DI '$Title': $($_.Exception.Message)"
+        Add-Content -Path $reportFile -Value $errorMessage
         Write-Host "[ERROR] Esecuzione di '$Title' fallita. Dettagli nel report." -ForegroundColor Red
     }
 }
 
-# Esecuzione sequenziale e robusta di ogni comando
 Write-Host "[INFO] Inizio generazione report. L'operazione potrebbe richiedere alcuni istanti..."
 Write-Host "-----------------------------------------------------------------"
 
+# Esecuzione sequenziale e robusta di ogni comando
 Run-And-Log -Title "INFORMAZIONI DI SISTEMA (SYSTEMINFO)" -Command { systeminfo }
-Run-And-Log -Title "INFORMAZIONI PROCESSORE (WMIC CPU)" -Command { wmic cpu get Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed /format:list }
-Run-And-Log -Title "INFORMAZIONI SCHEDA VIDEO (WMIC GPU)" -Command { wmic path win32_videocontroller get Name, DriverVersion, AdapterRAM /format:list }
-Run-And-Log -Title "INFORMAZIONI MEMORIA RAM (WMIC MEMORY)" -Command { wmic MemoryChip get BankLabel, Capacity, MemoryType, Speed /format:list }
-Run-And-Log -Title "INFORMAZIONI DISCHI FISICI (WMIC DISKDRIVE)" -Command { wmic diskdrive get Model, Size, InterfaceType /format:list }
+Run-And-Log -Title "INFORMAZIONI PROCESSORE (Get-CimInstance)" -Command { Get-CimInstance -ClassName Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed | Format-List }
+Run-And-Log -Title "INFORMAZIONI SCHEDA VIDEO (Get-CimInstance)" -Command { Get-CimInstance -ClassName Win32_VideoController | Select-Object Name, DriverVersion, AdapterRAM | Format-List }
+Run-And-Log -Title "INFORMAZIONI MEMORIA RAM (Get-CimInstance)" -Command { Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object BankLabel, @{n="Capacity(GB)";e={[math]::Round($_.Capacity / 1GB)}}, MemoryType, Speed | Format-Table }
+Run-And-Log -Title "INFORMAZIONI DISCHI FISICI (Get-CimInstance)" -Command { Get-CimInstance -ClassName Win32_DiskDrive | Select-Object Model, @{n="Size(GB)";e={[math]::Round($_.Size / 1GB)}}, InterfaceType | Format-Table }
 Run-And-Log -Title "CONFIGURAZIONE DI RETE (IPCONFIG)" -Command { ipconfig /all }
 Run-And-Log -Title "PIANI DI RISPARMIO ENERGETICO (POWERCFG)" -Command { powercfg /list }
 
