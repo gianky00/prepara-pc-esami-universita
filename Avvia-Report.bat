@@ -1,20 +1,14 @@
 @echo off
-:: =================================================================
-::  AVVIO REPORT DI SISTEMA (PowerShell Edition)
-:: =================================================================
-::  Questo file avvia lo script PowerShell per generare il report
-::  e mantiene questa finestra aperta per mostrare i messaggi.
-:: =================================================================
-
-echo [INFO] Avvio dello script di report PowerShell...
+REM Avvia lo script PowerShell in modalità Report
+echo Avvio della generazione del report di sistema...
 echo.
 
-:: Esegue lo script PowerShell, mantenendo la finestra aperta al termine (-NoExit)
-powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "%~dp0\Genera-Report.ps1"
+set "SCRIPT_PATH=%~dp0Invoke-ExamPrep.ps1"
+
+REM Esegue lo script PowerShell. La modalità Report non richiede privilegi elevati.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_PATH%" -Mode Report
 
 echo.
-echo [FINALE] L'operazione e' terminata. Puoi chiudere questa finestra.
-echo.
-
-:: Aggiungo un'ulteriore pausa per massima sicurezza
-pause
+echo Operazione completata. La finestra si chiuderà a breve.
+timeout /t 10 >nul
+exit /b

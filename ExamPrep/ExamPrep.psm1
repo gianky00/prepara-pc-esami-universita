@@ -206,8 +206,23 @@ function Start-ExamPreparation {
     Write-Log -Level INFO -Message "[7/8] Applicazione ottimizzazioni di base..."
     $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"; Test-And-Create-RegistryPath -Path $quietHoursKey | Out-Null; Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value 2 -Force; Write-Log -Level SUCCESS "   - Notifiche disattivate (Solo Sveglie)."
     $gameBarKey = "HKCU:\Software\Microsoft\GameBar"; Test-And-Create-RegistryPath -Path $gameBarKey | Out-Null; Set-ItemProperty -Path $gameBarKey -Name "AllowGameBar" -Value 0 -Type DWord -Force; Write-Log -Level SUCCESS "   - Xbox Game Bar disabilitata."
-    try { powercfg /setactive "8c5e7fda-e8bf-4a96-9a8f-a307e2250669" 2>$null; Write-Log -Level SUCCESS "   - Tentativo di impostare schema 'Prestazioni elevate'." }
-    catch { Write-Log -Level WARN "   - Impossibile impostare lo schema 'Prestazioni elevate' (normale su alcuni portatili)." }
+
+    # Ottimizzazione Piano Energia
+    $ultimateGuid = $Script:GlobalConfig.PowerPlanOptimizations.UltimatePerformanceGuid
+    $highPerfGuid = $Script:GlobalConfig.PowerPlanOptimizations.HighPerformanceGuid
+    $powerPlans = powercfg /list
+    if ($powerPlans -match $ultimateGuid) {
+        powercfg /setactive $ultimateGuid
+        Write-Log -Level SUCCESS "   - Schema energetico impostato su 'Prestazioni Eccellenti'."
+    }
+    elseif ($powerPlans -match $highPerfGuid) {
+        powercfg /setactive $highPerfGuid
+        Write-Log -Level SUCCESS "   - Schema energetico impostato su 'Prestazioni Elevate'."
+    }
+    else {
+        Write-Log -Level WARN "   - Schemi energetici ottimali non trovati. Le prestazioni potrebbero non essere massime."
+    }
+
     foreach ($s in $Script:GlobalConfig.ServicesToManage) { if ((Get-Service $s -EA SilentlyContinue).Status -eq 'Running') { Stop-Service $s -Force; Write-Log -Level SUCCESS "   - Servizio interrotto: $s" } }
     Get-Item -Path "$env:TEMP\*", "$env:SystemRoot\Temp\*", "$env:SystemRoot\Prefetch\*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Write-Log -Level SUCCESS "   - File temporanei puliti."
 
@@ -243,15 +258,19 @@ function Start-ExamRestore {
             Write-Log -Level SUCCESS "   - Prestazioni GPU ripristinate."
         }
         if ($null -ne $backupData.VisualEffects.UserPreferencesMask) {
-            # Correzione: Estrae l'array di byte dall'oggetto PSCustomObject che viene creato
-            # quando il JSON viene deserializzato, accedendo alla sua proprietà '.value' e forzando il cast a [byte[]].
+            # CORREZIONE BUG: Il valore deserializzato da JSON è un PSCustomObject.
+            # È necessario estrarre l'array di byte dalla proprietà 'value' e fare il cast a [byte[]].
             $restoredMaskBytes = [byte[]]$backupData.VisualEffects.UserPreferencesMask.value
-            Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value $restoredMaskBytes -Type Binary
+            Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value $restoredMaskBytes -Type Binary -Force
 
-            # Forza l'aggiornamento dell'interfaccia utente per applicare le modifiche visive
-            $sig = '[DllImport("user32.dll")]public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);'
-            (Add-Type -MemberDefinition $sig -Name "User32" -PassThru)::SystemParametersInfo(0x57, 0, $null, 2)
-            Write-Log -Level SUCCESS "   - Effetti visivi ripristinati."
+            # Forza un aggiornamento dell'interfaccia utente per applicare immediatamente le modifiche visive
+            try {
+                $user32 = Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);' -Name "User32" -Namespace "Win32" -PassThru
+                $user32::SystemParametersInfo(0x0057, 0, $null, 3) # SPI_SETDESKWALLPAPER with SPIF_UPDATEINIFILE | SPIF_SENDCHANGE
+                Write-Log -Level SUCCESS "   - Effetti visivi di Windows ripristinati e applicati."
+            } catch {
+                Write-Log -Level WARN "   - Non è stato possibile forzare l'aggiornamento degli effetti visivi. Potrebbe essere necessario un riavvio."
+            }
         }
         Remove-NetQosPolicy -Name "ExamPrepProctoring" -Confirm:$false -ErrorAction SilentlyContinue; Write-Log -Level SUCCESS "   - Policy QoS rimossa."
         if ($backupData.Network.InterfaceGuid) {
@@ -278,5 +297,56 @@ function Start-ExamRestore {
     Write-Log -Level TITLE -Message "--- RIPRISTINO COMPLETATO. Ben fatto! ---"
 }
 
-Export-ModuleMember -Function Start-ExamPreparation, Start-ExamRestore
+function New-ExamPrepReport {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ReportPath
+    )
+
+    $ErrorActionPreference = "SilentlyContinue"
+    Write-Log -Level TITLE -Message "--- GENERAZIONE REPORT DI SISTEMA v13.0 ---"
+
+    # Funzione helper nidificata per mantenere pulito lo scope del modulo
+    Function Run-And-Log-Report {
+        param(
+            [string]$Title,
+            [scriptblock]$Command,
+            [string]$FilePath
+        )
+        Add-Content -Path $FilePath -Value "`n`n--- $Title ---`n" -Encoding UTF8
+        try {
+            $output = & $Command 2>&1 | Out-String
+            Add-Content -Path $FilePath -Value $output -Encoding UTF8
+            Write-Log -Level SUCCESS "   - Report per '$Title' completato."
+        } catch {
+            $errorMessage = "ERRORE CRITICO DURANTE L'ESECUZIONE DI '$Title': $($_.Exception.Message)"
+            Add-Content -Path $FilePath -Value $errorMessage -Encoding UTF8
+            Write-Log -Level ERROR "   - Esecuzione di '$Title' fallita."
+        }
+    }
+
+    $header = "=================================================================`n                REPORT DI SISTEMA - $(Get-Date)`n================================================================="
+    Set-Content -Path $ReportPath -Value $header -Encoding utf8BOM
+
+    Run-And-Log-Report -Title "INFORMAZIONI DI SISTEMA (SYSTEMINFO)" -Command { systeminfo } -FilePath $ReportPath
+    Run-And-Log-Report -Title "INFORMAZIONI PROCESSORE (Get-CimInstance)" -Command { Get-CimInstance -ClassName Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed | Format-List } -FilePath $ReportPath
+    Run-And-Log-Report -Title "INFORMAZIONI SCHEDA VIDEO (Get-CimInstance)" -Command { Get-CimInstance -ClassName Win32_VideoController | Select-Object Name, DriverVersion, AdapterRAM | Format-List } -FilePath $ReportPath
+    Run-And-Log-Report -Title "INFORMAZIONI MEMORIA RAM (Get-CimInstance)" -Command { Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object BankLabel, @{n="Capacity(GB)";e={[math]::Round($_.Capacity / 1GB)}}, MemoryType, Speed | Format-Table } -FilePath $ReportPath
+    Run-And-Log-Report -Title "INFORMAZIONI DISCHI FISICI (Get-CimInstance)" -Command { Get-CimInstance -ClassName Win32_DiskDrive | Select-Object Model, @{n="Size(GB)";e={[math]::Round($_.Size / 1GB)}}, InterfaceType | Format-Table } -FilePath $ReportPath
+    Run-And-Log-Report -Title "CONFIGURAZIONE DI RETE (IPCONFIG)" -Command { ipconfig /all } -FilePath $ReportPath
+    Run-And-Log-Report -Title "PIANI DI RISPARMIO ENERGETICO (POWERCFG)" -Command { powercfg /list } -FilePath $ReportPath
+
+    $footer = "`n`n=================================================================`n                     FINE DEL REPORT`n================================================================="
+    Add-Content -Path $ReportPath -Value $footer -Encoding UTF8
+
+    Write-Log -Level TITLE -Message "Report creato con successo in '$ReportPath'."
+    try {
+        Start-Process notepad $ReportPath
+    } catch {
+        Write-Log -Level WARN "Impossibile aprire il file di report automaticamente."
+    }
+}
+
+Export-ModuleMember -Function Start-ExamPreparation, Start-ExamRestore, New-ExamPrepReport
 # --- FINE MODULO POWERSHELL ExamPrep ---
