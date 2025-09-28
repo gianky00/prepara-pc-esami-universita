@@ -1,18 +1,21 @@
 # =================================================================
-#  GENERATORE DI REPORT DI SISTEMA - v12.0 (Modern PowerShell)
+#  GENERATORE DI REPORT DI SISTEMA - v13.0 (Correzione Encoding)
 # =================================================================
-#  Questo script usa i moderni cmdlet di PowerShell (Get-CimInstance)
-#  per la massima affidabilità e compatibilità.
+#  Usa Get-CimInstance e forza l'encoding UTF8 con BOM per massima
+#  affidabilità, compatibilità e leggibilità del report.
 # =================================================================
 
 $reportFile = Join-Path $PSScriptRoot "Report_PC_Definitivo.txt"
 $ErrorActionPreference = "SilentlyContinue"
 
-# Pulisce il report precedente e scrive l'intestazione
-Remove-Item $reportFile -ErrorAction SilentlyContinue
-Add-Content -Path $reportFile -Value "================================================================="
-Add-Content -Path $reportFile -Value "                REPORT DI SISTEMA - $(Get-Date)"
-Add-Content -Path $reportFile -Value "================================================================="
+# Pulisce il report precedente e scrive l'intestazione con un BOM (Byte Order Mark)
+# Questo è FONDAMENTALE per far sì che Notepad legga correttamente i caratteri.
+$header = @"
+=================================================================
+                REPORT DI SISTEMA - $(Get-Date)
+=================================================================
+"@
+Set-Content -Path $reportFile -Value $header -Encoding utf8BOM
 
 # Funzione per eseguire un comando e scrivere il suo output nel file di report
 Function Run-And-Log {
@@ -21,16 +24,17 @@ Function Run-And-Log {
         [scriptblock]$Command
     )
 
-    Add-Content -Path $reportFile -Value "`n`n--- $Title ---`n"
+    # Scrive l'intestazione della sezione, sempre con l'encoding corretto
+    Add-Content -Path $reportFile -Value "`n`n--- $Title ---`n" -Encoding UTF8
 
+    # Esegue il comando e cattura tutto l'output come stringa per controllare l'encoding
     try {
-        # Esegue il comando e cattura l'output formattato come stringa
-        $output = & $Command | Out-String
-        Add-Content -Path $reportFile -Value $output
+        $output = & $Command 2>&1 | Out-String
+        Add-Content -Path $reportFile -Value $output -Encoding UTF8
         Write-Host "[SUCCESS] Report per '$Title' completato."
     } catch {
         $errorMessage = "ERRORE CRITICO DURANTE L'ESECUZIONE DI '$Title': $($_.Exception.Message)"
-        Add-Content -Path $reportFile -Value $errorMessage
+        Add-Content -Path $reportFile -Value $errorMessage -Encoding UTF8
         Write-Host "[ERROR] Esecuzione di '$Title' fallita. Dettagli nel report." -ForegroundColor Red
     }
 }
@@ -47,9 +51,13 @@ Run-And-Log -Title "INFORMAZIONI DISCHI FISICI (Get-CimInstance)" -Command { Get
 Run-And-Log -Title "CONFIGURAZIONE DI RETE (IPCONFIG)" -Command { ipconfig /all }
 Run-And-Log -Title "PIANI DI RISPARMIO ENERGETICO (POWERCFG)" -Command { powercfg /list }
 
-Add-Content -Path $reportFile -Value "`n`n================================================================="
-Add-Content -Path $reportFile -Value "                     FINE DEL REPORT"
-Add-Content -Path $reportFile -Value "================================================================="
+$footer = @"
+
+=================================================================
+                     FINE DEL REPORT
+=================================================================
+"@
+Add-Content -Path $reportFile -Value $footer -Encoding UTF8
 
 Write-Host "-----------------------------------------------------------------"
 Write-Host "[SUCCESS] Report creato con successo in '$reportFile'."
