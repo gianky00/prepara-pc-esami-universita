@@ -48,7 +48,6 @@ if (Test-Path $reportFile) { Remove-Item $reportFile }
     Run-And-Log -Title "INFORMAZIONI DISCHI FISICI (WMIC DISKDRIVE)" -Command { wmic diskdrive get Model, Size, InterfaceType /format:list };
     Run-And-Log -Title "CONFIGURAZIONE DI RETE (IPCONFIG)" -Command { ipconfig /all };
     Run-And-Log -Title "PIANI DI RISPARMIO ENERGETICO (POWERCFG)" -Command { powercfg /list };
-
 ) | Out-File -FilePath $reportFile -Encoding UTF8 -Append
 
 Write-Host "[SUCCESS] Report creato con successo in '$reportFile'."
