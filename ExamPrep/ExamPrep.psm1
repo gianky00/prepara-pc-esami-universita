@@ -194,7 +194,9 @@ function Start-ExamPreparation {
             Write-Log -Level WARN "Impossibile trovare l'eseguibile dell'applicazione proctor. Le ottimizzazioni specifiche (GPU, QoS) non verranno applicate."
         }
 
-        $ipconfig = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up'}
+        # CORREZIONE: Seleziona solo la prima configurazione di rete attiva per evitare errori
+        # in sistemi con più adattatori di rete (es. VPN, VirtualBox).
+        $ipconfig = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up'} | Select-Object -First 1
         if ($ipconfig) {
             $interfaceGuid = $ipconfig.NetAdapter.InterfaceGuid; $backupData.Network.InterfaceGuid = $interfaceGuid
             $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$interfaceGuid"
