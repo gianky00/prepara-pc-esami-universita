@@ -116,8 +116,8 @@ function Start-ExamPreparation {
     $backupFile = Join-Path $backupDir "ExamPrepAdvancedBackup.json"
     if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir | Out-Null }
 
-    $backupData = @{ Services = @{}; VisualEffects = @{}; Network = @{}; ProctorProcess = @{}; QuietHours = $null; GameBar = @{} }
-    Write-Log -Level INFO -Message "[1/8] Esecuzione backup in posizione sicura..."
+    $backupData = @{ Services = @{}; VisualEffects = @{}; Network = @{}; ProctorProcess = @{}; QuietHours = $null; GameBar = @{}; NetworkAdapters = @() }
+    Write-Log -Level INFO -Message "[1/9] Esecuzione backup in posizione sicura..."
     try {
         $activeSchemeOutput = powercfg /getactivescheme
         $guidMatch = $activeSchemeOutput | Select-String -Pattern '[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}'
@@ -152,12 +152,20 @@ function Start-ExamPreparation {
         $backupData.QuietHours = Get-ItemPropertyValue -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours" -Name "QuietHoursProfile" -ErrorAction SilentlyContinue
         $backupData.GameBar.AllowGameBar = Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\GameBar" -Name "AllowGameBar" -ErrorAction SilentlyContinue
 
+        # Backup dello stato degli adattatori di rete
+        $backupData.NetworkAdapters = Get-NetAdapter -IncludeHidden | ForEach-Object {
+            @{
+                InterfaceDescription = $_.InterfaceDescription
+                Status = $_.Status
+            }
+        }
+
         $backupData | ConvertTo-Json -Depth 5 | Out-File -FilePath $backupFile -Encoding UTF8
         Write-Log -Level SUCCESS -Message "   - Backup completato in '$backupFile'."
     } catch { Write-Log -Level ERROR -Message "Errore durante il backup: $($_.Exception.Message)"; return }
 
     # 2. Scoperta e Classificazione Processi
-    Write-Log -Level INFO -Message "[2/8] Scansione per processi non configurati..."
+    Write-Log -Level INFO -Message "[2/9] Scansione per processi non configurati..."
     $knownProcesses = $Script:GlobalConfig.ProcessesToKill + $Script:GlobalConfig.AllowedApplications + @($Script:GlobalConfig.ProctoringAppName)
     $discovered = Get-DiscoverableProcesses -KnownProcesses $knownProcesses
     $sessionDecisions = if ($discovered.Count -gt 0) { Invoke-ProcessClassifier -DiscoveredProcesses $discovered -ConfigPath $ConfigPath }
@@ -169,16 +177,37 @@ function Start-ExamPreparation {
     }
 
     # 4. Terminazione Processi
-    Write-Log -Level INFO -Message "[4/8] Terminazione processi..."
+    Write-Log -Level INFO -Message "[4/9] Terminazione processi..."
     $Script:GlobalConfig = Get-ExamPrepConfig -ConfigPath $ConfigPath
     $killList = ($Script:GlobalConfig.ProcessesToKill + $sessionDecisions.Kill) | Where-Object { $_ -notin ($Script:GlobalConfig.AllowedApplications + $sessionDecisions.Allow) } | Select-Object -Unique
     foreach ($process in $killList) {
         $procName = $process.Replace(".exe", ""); if (Get-Process -Name $procName -ErrorAction SilentlyContinue) { Stop-Process -Name $procName -Force; Write-Log -Level SUCCESS "   - Terminato: $process" }
     }
 
-    # 5. Ottimizzazioni Avanzate PC
+    # 5. Gestione Adattatori di Rete
+    if ($Script:GlobalConfig.NetworkAdapterManagement.Enabled) {
+        Write-Log -Level INFO -Message "[5/9] Gestione degli adattatori di rete..."
+        $primaryAdapter = $Script:GlobalConfig.NetworkAdapterManagement.PrimaryInterfaceDescription
+        # Utilizza i dati dal backup per decidere quali disabilitare, per coerenza
+        $adaptersToDisable = $backupData.NetworkAdapters | Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -ne $primaryAdapter }
+
+        if ($adaptersToDisable) {
+            foreach ($adapterInfo in $adaptersToDisable) {
+                try {
+                    Disable-NetAdapter -InterfaceDescription $adapterInfo.InterfaceDescription -Confirm:$false -ErrorAction Stop
+                    Write-Log -Level SUCCESS "   - Adattatore di rete disabilitato: $($adapterInfo.InterfaceDescription)"
+                } catch {
+                    Write-Log -Level WARN "   - Impossibile disabilitare l'adattatore '$($adapterInfo.InterfaceDescription)'. Errore: $($_.Exception.Message)"
+                }
+            }
+        } else {
+            Write-Log -Level VERBOSE -Message "Nessun adattatore di rete non primario da disabilitare."
+        }
+    }
+
+    # 6. Ottimizzazioni Avanzate PC
     if ($Script:GlobalConfig.AdvancedOptimizations.EnablePCPerformance) {
-        Write-Log -Level INFO -Message "[5/8] Applicazione ottimizzazioni PC avanzate..."
+        Write-Log -Level INFO -Message "[6/9] Applicazione ottimizzazioni PC avanzate..."
         if ($proctorProc) {
             $proctorProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High; Write-Log -Level SUCCESS "   - Priorità di '$($Script:GlobalConfig.ProctoringAppName)' impostata su 'Alta'."
             $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"; Test-And-Create-RegistryPath -Path $gpuPrefKey | Out-Null
@@ -188,9 +217,9 @@ function Start-ExamPreparation {
         Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" -Name "VisualFX" -Value 2; Write-Log -Level SUCCESS "   - Effetti visivi di Windows impostati per massime prestazioni."
     }
 
-    # 6. Ottimizzazioni Avanzate Rete
+    # 7. Ottimizzazioni Avanzate Rete
     if ($Script:GlobalConfig.AdvancedOptimizations.EnableNetworkPerformance) {
-        Write-Log -Level INFO -Message "[6/8] Applicazione ottimizzazioni Rete avanzate..."
+        Write-Log -Level INFO -Message "[7/9] Applicazione ottimizzazioni Rete avanzate..."
         if ($proctorProc) {
             try { New-NetQosPolicy -Name "ExamPrepProctoring" -AppPathNameMatchCondition $proctorProc.Path -PriorityValue8021Action 7 -ErrorAction Stop; Write-Log -Level SUCCESS "   - Policy QoS creata per '$($Script:GlobalConfig.ProctoringAppName)'." }
             catch { Write-Log -Level WARN "   - Impossibile creare policy QoS." }
@@ -202,8 +231,8 @@ function Start-ExamPreparation {
         }
     }
 
-    # 7. Ottimizzazioni Base
-    Write-Log -Level INFO -Message "[7/8] Applicazione ottimizzazioni di base..."
+    # 8. Ottimizzazioni Base
+    Write-Log -Level INFO -Message "[8/9] Applicazione ottimizzazioni di base..."
     $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"; Test-And-Create-RegistryPath -Path $quietHoursKey | Out-Null; Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value 2 -Force; Write-Log -Level SUCCESS "   - Notifiche disattivate (Solo Sveglie)."
     $gameBarKey = "HKCU:\Software\Microsoft\GameBar"; Test-And-Create-RegistryPath -Path $gameBarKey | Out-Null; Set-ItemProperty -Path $gameBarKey -Name "AllowGameBar" -Value 0 -Type DWord -Force; Write-Log -Level SUCCESS "   - Xbox Game Bar disabilitata."
 
@@ -226,8 +255,8 @@ function Start-ExamPreparation {
     foreach ($s in $Script:GlobalConfig.ServicesToManage) { if ((Get-Service $s -EA SilentlyContinue).Status -eq 'Running') { Stop-Service $s -Force; Write-Log -Level SUCCESS "   - Servizio interrotto: $s" } }
     Get-Item -Path "$env:TEMP\*", "$env:SystemRoot\Temp\*", "$env:SystemRoot\Prefetch\*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Write-Log -Level SUCCESS "   - File temporanei puliti."
 
-    # 8. Pulizia Cestino
-    if ($Script:GlobalConfig.EmptyRecycleBin) { Write-Log -Level INFO -Message "[8/8] Pulizia del Cestino..."; try { (New-Object -ComObject Shell.Application).Namespace(10).Items() | ForEach-Object { $_.InvokeVerb("delete") }; Write-Log -Level SUCCESS "   - Cestino svuotato." } catch { Write-Log -Level WARN "   - Impossibile svuotare il Cestino." } }
+    # 9. Pulizia Cestino
+    if ($Script:GlobalConfig.EmptyRecycleBin) { Write-Log -Level INFO -Message "[9/9] Pulizia del Cestino..."; try { (New-Object -ComObject Shell.Application).Namespace(10).Items() | ForEach-Object { $_.InvokeVerb("delete") }; Write-Log -Level SUCCESS "   - Cestino svuotato." } catch { Write-Log -Level WARN "   - Impossibile svuotare il Cestino." } }
 
     Write-Log -Level TITLE -Message "--- PREPARAZIONE COMPLETATA. In bocca al lupo! ---"
 }
@@ -284,14 +313,30 @@ function Start-ExamRestore {
     } catch { Write-Log -Level WARN "Errore non critico durante ripristino avanzato: $($_.Exception.Message)" }
 
     # 2. Ripristino Ottimizzazioni Base
-    Write-Log -Level INFO -Message "[2/3] Ripristino ottimizzazioni di base..."
+    Write-Log -Level INFO -Message "[2/4] Ripristino ottimizzazioni di base..."
     $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"; Test-And-Create-RegistryPath -Path $quietHoursKey | Out-Null; $originalProfile = if($null -ne $backupData.QuietHours){$backupData.QuietHours}else{0}; Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value $originalProfile -Force; Write-Log -Level SUCCESS "   - Assistente notifiche ripristinato."
     $gameBarKey = "HKCU:\Software\Microsoft\GameBar"; Test-And-Create-RegistryPath -Path $gameBarKey | Out-Null; $originalGameBar = if($null -ne $backupData.GameBar.AllowGameBar){$backupData.GameBar.AllowGameBar}else{1}; Set-ItemProperty -Path $gameBarKey -Name "AllowGameBar" -Value $originalGameBar -Type DWord -Force; Write-Log -Level SUCCESS "   - Xbox Game Bar ripristinata."
     powercfg /setactive $backupData.PowerScheme; Write-Log -Level SUCCESS "   - Schema energetico ripristinato."
     foreach ($s in $backupData.Services.PSObject.Properties) { if ($s.Value -eq 'Running') { Start-Service -Name $s.Name -EA SilentlyContinue; Write-Log -Level SUCCESS "   - Servizio riavviato: $($s.Name)" } }
 
-    # 3. Pulizia
-    Write-Log -Level INFO -Message "[3/3] Pulizia file di backup..."
+    # 3. Ripristino Adattatori di Rete
+    if ($Script:GlobalConfig.NetworkAdapterManagement.Enabled -and $backupData.NetworkAdapters) {
+        Write-Log -Level INFO -Message "[3/4] Ripristino adattatori di rete..."
+        foreach ($adapterInfo in $backupData.NetworkAdapters) {
+            # Ripristina lo stato solo se era 'Up' in origine
+            if ($adapterInfo.Status -eq 'Up') {
+                try {
+                    Enable-NetAdapter -InterfaceDescription $adapterInfo.InterfaceDescription -Confirm:$false -ErrorAction Stop
+                    Write-Log -Level SUCCESS "   - Adattatore di rete ri-abilitato: $($adapterInfo.InterfaceDescription)"
+                } catch {
+                    Write-Log -Level WARN "   - Impossibile ri-abilitare l'adattatore '$($adapterInfo.InterfaceDescription)'. Potrebbe essere necessario farlo manualmente. Errore: $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+
+    # 4. Pulizia
+    Write-Log -Level INFO -Message "[4/4] Pulizia file di backup..."
     Remove-Item -Path $backupFile -Force; Write-Log -Level SUCCESS "   - File di backup rimosso."
 
     Write-Log -Level TITLE -Message "--- RIPRISTINO COMPLETATO. Ben fatto! ---"
