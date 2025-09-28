@@ -1,5 +1,5 @@
 # --- INIZIO MODULO POWERSHELL ExamPrep ---
-# Versione 10.0.0: Versione Élite Definitiva, Stabile e Corretta.
+# Versione 11.0.0: Backup persistente per un ripristino a prova di proiettile.
 
 #region Variabili Script-Scoped
 $Script:GlobalLogPath = $null
@@ -107,14 +107,17 @@ function Start-ExamPreparation {
         [Parameter(Mandatory = $true)][string]$LogPath
     )
     $Script:GlobalLogPath = $LogPath
-    Write-Log -Level TITLE -Message "--- MODALITÀ PREPARAZIONE ESAME v10.0 (Élite Stabile) ---"
+    Write-Log -Level TITLE -Message "--- MODALITÀ PREPARAZIONE ESAME v11.0 (Élite Stabile) ---"
     try { $Script:GlobalConfig = Get-ExamPrepConfig -ConfigPath $ConfigPath }
     catch { Write-Log -Level ERROR -Message $_.Exception.Message; return }
 
     # 1. Backup
-    $backupFile = Join-Path $env:TEMP "ExamPrepAdvancedBackup.json"
+    $backupDir = Join-Path $env:LOCALAPPDATA "ExamPrep"
+    $backupFile = Join-Path $backupDir "ExamPrepAdvancedBackup.json"
+    if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir | Out-Null }
+
     $backupData = @{ Services = @{}; VisualEffects = @{}; Network = @{}; ProctorProcess = @{}; QuietHours = $null; GameBar = @{} }
-    Write-Log -Level INFO -Message "[1/8] Esecuzione backup avanzato..."
+    Write-Log -Level INFO -Message "[1/8] Esecuzione backup in posizione sicura..."
     try {
         $activeSchemeOutput = powercfg /getactivescheme
         $guidMatch = $activeSchemeOutput | Select-String -Pattern '[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}'
@@ -150,7 +153,7 @@ function Start-ExamPreparation {
         $backupData.GameBar.AllowGameBar = Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\GameBar" -Name "AllowGameBar" -ErrorAction SilentlyContinue
 
         $backupData | ConvertTo-Json -Depth 5 | Out-File -FilePath $backupFile -Encoding UTF8
-        Write-Log -Level SUCCESS -Message "   - Backup completato."
+        Write-Log -Level SUCCESS -Message "   - Backup completato in '$backupFile'."
     } catch { Write-Log -Level ERROR -Message "Errore durante il backup: $($_.Exception.Message)"; return }
 
     # 2. Scoperta e Classificazione Processi
@@ -203,10 +206,7 @@ function Start-ExamPreparation {
     Write-Log -Level INFO -Message "[7/8] Applicazione ottimizzazioni di base..."
     $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"; Test-And-Create-RegistryPath -Path $quietHoursKey | Out-Null; Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value 2 -Force; Write-Log -Level SUCCESS "   - Notifiche disattivate (Solo Sveglie)."
     $gameBarKey = "HKCU:\Software\Microsoft\GameBar"; Test-And-Create-RegistryPath -Path $gameBarKey | Out-Null; Set-ItemProperty -Path $gameBarKey -Name "AllowGameBar" -Value 0 -Type DWord -Force; Write-Log -Level SUCCESS "   - Xbox Game Bar disabilitata."
-    try {
-        powercfg /setactive "8c5e7fda-e8bf-4a96-9a8f-a307e2250669" 2>$null
-        Write-Log -Level SUCCESS "   - Schema energetico impostato su 'Prestazioni elevate'."
-    }
+    try { powercfg /setactive "8c5e7fda-e8bf-4a96-9a8f-a307e2250669" 2>$null; Write-Log -Level SUCCESS "   - Tentativo di impostare schema 'Prestazioni elevate'." }
     catch { Write-Log -Level WARN "   - Impossibile impostare lo schema 'Prestazioni elevate' (normale su alcuni portatili)." }
     foreach ($s in $Script:GlobalConfig.ServicesToManage) { if ((Get-Service $s -EA SilentlyContinue).Status -eq 'Running') { Stop-Service $s -Force; Write-Log -Level SUCCESS "   - Servizio interrotto: $s" } }
     Get-Item -Path "$env:TEMP\*", "$env:SystemRoot\Temp\*", "$env:SystemRoot\Prefetch\*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Write-Log -Level SUCCESS "   - File temporanei puliti."
@@ -224,9 +224,9 @@ function Start-ExamRestore {
         [Parameter(Mandatory = $true)][string]$LogPath
     )
     $Script:GlobalLogPath = $LogPath
-    Write-Log -Level TITLE -Message "--- MODALITÀ RIPRISTINO POST-ESAME v10.0 ---"
-    $backupFile = Join-Path $env:TEMP "ExamPrepAdvancedBackup.json"
-    if (-not (Test-Path $backupFile)) { Write-Log -Level ERROR "File di backup non trovato."; return }
+    Write-Log -Level TITLE -Message "--- MODALITÀ RIPRISTINO POST-ESAME v11.0 ---"
+    $backupFile = Join-Path $env:LOCALAPPDATA "ExamPrep\ExamPrepAdvancedBackup.json"
+    if (-not (Test-Path $backupFile)) { Write-Log -Level ERROR "File di backup non trovato in '$backupFile'. Impossibile ripristinare."; return }
     $backupData = Get-Content -Path $backupFile | ConvertFrom-Json
     if (-not $PSCmdlet.ShouldProcess("il sistema allo stato pre-esame", "Conferma ripristino", "Conferma")) { Write-Log -Level WARN "Ripristino annullato."; return }
 
