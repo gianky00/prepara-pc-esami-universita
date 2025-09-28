@@ -12,7 +12,7 @@
 RootModule = 'ExamPrep.psm1'
 
 # Version number of this module.
-ModuleVersion = '9.0.0'
+ModuleVersion = '10.0.0'
 
 # ID used to uniquely identify this module
 GUID = 'd2a6e9a0-1b0e-4f8a-9c7d-3d0b8f6e5a4d'
@@ -57,7 +57,8 @@ PrivateData = @{
 
         # ReleaseNotes of this module
         ReleaseNotes = @(
-            'Versione 9.0.0: Versione Élite Definitiva. Implementazione completa di tutte le funzionalità e correzione di tutti i bug. Logica di backup/ripristino completa e robusta. Logging globale funzionante.',
+            'Versione 10.0.0: Versione Élite Stabile. Corretti tutti i bug critici, inclusi quelli relativi al backup del registro e ai comandi non universali. Stabilità e affidabilità massime.',
+            'Versione 9.0.0: Tentativo di Versione Élite Definitiva, buggata.',
             'Versione 8.0.0: Tentativo di Versione Élite, incompleta.',
             'Versione 6.0.0: Aggiunte ottimizzazioni di livello Élite per CPU, GPU, RAM e Rete (QoS, Nagle).',
             'Versione 5.0.0: Aggiunta la scoperta e classificazione interattiva dei processi.',

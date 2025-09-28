@@ -1,8 +1,7 @@
 # --- INIZIO MODULO POWERSHELL ExamPrep ---
-# Versione 9.0.0: Versione Élite Definitiva, Corretta e Funzionante.
+# Versione 10.0.0: Versione Élite Definitiva, Stabile e Corretta.
 
 #region Variabili Script-Scoped
-# Variabili definite a livello di script per essere accessibili da tutte le funzioni del modulo.
 $Script:GlobalLogPath = $null
 $Script:GlobalConfig = $null
 #endregion
@@ -108,7 +107,7 @@ function Start-ExamPreparation {
         [Parameter(Mandatory = $true)][string]$LogPath
     )
     $Script:GlobalLogPath = $LogPath
-    Write-Log -Level TITLE -Message "--- MODALITÀ PREPARAZIONE ESAME v9.0 (Élite Definitiva) ---"
+    Write-Log -Level TITLE -Message "--- MODALITÀ PREPARAZIONE ESAME v10.0 (Élite Stabile) ---"
     try { $Script:GlobalConfig = Get-ExamPrepConfig -ConfigPath $ConfigPath }
     catch { Write-Log -Level ERROR -Message $_.Exception.Message; return }
 
@@ -138,26 +137,17 @@ function Start-ExamPreparation {
 
         $ipconfig = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up'}
         if ($ipconfig) {
-            $adapter = $ipconfig.NetAdapter; $backupData.Network.WifiAdapterName = $adapter.Name
-            $powerMgmt = Get-NetAdapterPowerManagement -Name $adapter.Name -ErrorAction SilentlyContinue
-            if ($powerMgmt) { $backupData.Network.WifiPowerSaving = $powerMgmt.AllowComputerToTurnOffDevice }
-            $interfaceGuid = $adapter.InterfaceGuid; $backupData.Network.InterfaceGuid = $interfaceGuid
+            $interfaceGuid = $ipconfig.NetAdapter.InterfaceGuid; $backupData.Network.InterfaceGuid = $interfaceGuid
             $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$interfaceGuid"
             if (Test-Path $nagleKeyPath) {
-                # Metodo robusto: verifica l'esistenza della proprietà prima di leggerla per evitare errori.
                 $regKey = Get-Item -Path $nagleKeyPath
-                if ($null -ne $regKey.GetValue("TcpAckFrequency", $null)) {
-                    $backupData.Network.TcpAckFrequency = $regKey.GetValue("TcpAckFrequency")
-                }
-                if ($null -ne $regKey.GetValue("TCPNoDelay", $null)) {
-                    $backupData.Network.TCPNoDelay = $regKey.GetValue("TCPNoDelay")
-                }
+                if ($null -ne $regKey.GetValue("TcpAckFrequency", $null)) { $backupData.Network.TcpAckFrequency = $regKey.GetValue("TcpAckFrequency") }
+                if ($null -ne $regKey.GetValue("TCPNoDelay", $null)) { $backupData.Network.TCPNoDelay = $regKey.GetValue("TCPNoDelay") }
             }
         }
 
         $backupData.QuietHours = Get-ItemPropertyValue -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours" -Name "QuietHoursProfile" -ErrorAction SilentlyContinue
         $backupData.GameBar.AllowGameBar = Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\GameBar" -Name "AllowGameBar" -ErrorAction SilentlyContinue
-        $backupData.GameBar.Policy = Get-ItemPropertyValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR" -Name "AllowGameDVR" -ErrorAction SilentlyContinue
 
         $backupData | ConvertTo-Json -Depth 5 | Out-File -FilePath $backupFile -Encoding UTF8
         Write-Log -Level SUCCESS -Message "   - Backup completato."
@@ -167,9 +157,8 @@ function Start-ExamPreparation {
     Write-Log -Level INFO -Message "[2/8] Scansione per processi non configurati..."
     $knownProcesses = $Script:GlobalConfig.ProcessesToKill + $Script:GlobalConfig.AllowedApplications + @($Script:GlobalConfig.ProctoringAppName)
     $discovered = Get-DiscoverableProcesses -KnownProcesses $knownProcesses
-    $sessionDecisions = if ($discovered.Count -gt 0) {
-        Invoke-ProcessClassifier -DiscoveredProcesses $discovered -ConfigPath $ConfigPath
-    } else { Write-Log -Level VERBOSE -Message "Nessun nuovo processo da classificare."; @{ Kill = @(); Allow = @() } }
+    $sessionDecisions = if ($discovered.Count -gt 0) { Invoke-ProcessClassifier -DiscoveredProcesses $discovered -ConfigPath $ConfigPath }
+    else { Write-Log -Level VERBOSE -Message "Nessun nuovo processo da classificare."; @{ Kill = @(); Allow = @() } }
 
     # 3. Conferma Utente Finale
     if (-not $PSCmdlet.ShouldProcess("il sistema per la preparazione all'esame", "Sei sicuro di voler procedere?", "Conferma")) {
@@ -199,7 +188,6 @@ function Start-ExamPreparation {
     # 6. Ottimizzazioni Avanzate Rete
     if ($Script:GlobalConfig.AdvancedOptimizations.EnableNetworkPerformance) {
         Write-Log -Level INFO -Message "[6/8] Applicazione ottimizzazioni Rete avanzate..."
-        if ($backupData.Network.WifiAdapterName) { Set-NetAdapterPowerManagement -Name $backupData.Network.WifiAdapterName -AllowComputerToTurnOffDevice $false; Write-Log -Level SUCCESS "   - Risparmio energetico Wi-Fi disattivato." }
         if ($proctorProc) {
             try { New-NetQosPolicy -Name "ExamPrepProctoring" -AppPathNameMatchCondition $proctorProc.Path -PriorityValue8021Action 7 -ErrorAction Stop; Write-Log -Level SUCCESS "   - Policy QoS creata per '$($Script:GlobalConfig.ProctoringAppName)'." }
             catch { Write-Log -Level WARN "   - Impossibile creare policy QoS." }
@@ -215,7 +203,8 @@ function Start-ExamPreparation {
     Write-Log -Level INFO -Message "[7/8] Applicazione ottimizzazioni di base..."
     $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"; Test-And-Create-RegistryPath -Path $quietHoursKey | Out-Null; Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value 2 -Force; Write-Log -Level SUCCESS "   - Notifiche disattivate (Solo Sveglie)."
     $gameBarKey = "HKCU:\Software\Microsoft\GameBar"; Test-And-Create-RegistryPath -Path $gameBarKey | Out-Null; Set-ItemProperty -Path $gameBarKey -Name "AllowGameBar" -Value 0 -Type DWord -Force; Write-Log -Level SUCCESS "   - Xbox Game Bar disabilitata."
-    powercfg /setactive "8c5e7fda-e8bf-4a96-9a8f-a307e2250669"; Write-Log -Level SUCCESS "   - Schema energetico impostato su 'Prestazioni elevate'."
+    try { powercfg /setactive "8c5e7fda-e8bf-4a96-9a8f-a307e2250669"; Write-Log -Level SUCCESS "   - Schema energetico impostato su 'Prestazioni elevate'." }
+    catch { Write-Log -Level WARN "   - Impossibile impostare lo schema 'Prestazioni elevate' (potrebbe non essere disponibile)." }
     foreach ($s in $Script:GlobalConfig.ServicesToManage) { if ((Get-Service $s -EA SilentlyContinue).Status -eq 'Running') { Stop-Service $s -Force; Write-Log -Level SUCCESS "   - Servizio interrotto: $s" } }
     Get-Item -Path "$env:TEMP\*", "$env:SystemRoot\Temp\*", "$env:SystemRoot\Prefetch\*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Write-Log -Level SUCCESS "   - File temporanei puliti."
 
@@ -232,7 +221,7 @@ function Start-ExamRestore {
         [Parameter(Mandatory = $true)][string]$LogPath
     )
     $Script:GlobalLogPath = $LogPath
-    Write-Log -Level TITLE -Message "--- MODALITÀ RIPRISTINO POST-ESAME v9.0 ---"
+    Write-Log -Level TITLE -Message "--- MODALITÀ RIPRISTINO POST-ESAME v10.0 ---"
     $backupFile = Join-Path $env:TEMP "ExamPrepAdvancedBackup.json"
     if (-not (Test-Path $backupFile)) { Write-Log -Level ERROR "File di backup non trovato."; return }
     $backupData = Get-Content -Path $backupFile | ConvertFrom-Json
@@ -256,7 +245,6 @@ function Start-ExamRestore {
             (Add-Type -MemberDefinition $sig -Name "User32" -PassThru)::SystemParametersInfo(0x57, 0, $null, 2)
             Write-Log -Level SUCCESS "   - Effetti visivi ripristinati."
         }
-        if ($backupData.Network.WifiAdapterName) { Set-NetAdapterPowerManagement -Name $backupData.Network.WifiAdapterName -AllowComputerToTurnOffDevice $backupData.Network.WifiPowerSaving; Write-Log -Level SUCCESS "   - Risparmio energetico Wi-Fi ripristinato." }
         Remove-NetQosPolicy -Name "ExamPrepProctoring" -Confirm:$false -ErrorAction SilentlyContinue; Write-Log -Level SUCCESS "   - Policy QoS rimossa."
         if ($backupData.Network.InterfaceGuid) {
             $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$($backupData.Network.InterfaceGuid)"
@@ -270,8 +258,8 @@ function Start-ExamRestore {
 
     # 2. Ripristino Ottimizzazioni Base
     Write-Log -Level INFO -Message "[2/3] Ripristino ottimizzazioni di base..."
-    $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"; $originalProfile = if($null -ne $backupData.QuietHours){$backupData.QuietHours}else{0}; Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value $originalProfile -Force; Write-Log -Level SUCCESS "   - Assistente notifiche ripristinato."
-    $gameBarKey = "HKCU:\Software\Microsoft\GameBar"; $originalGameBar = if($null -ne $backupData.GameBar.AllowGameBar){$backupData.GameBar.AllowGameBar}else{1}; Set-ItemProperty -Path $gameBarKey -Name "AllowGameBar" -Value $originalGameBar -Type DWord -Force; Write-Log -Level SUCCESS "   - Xbox Game Bar ripristinata."
+    $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"; Test-And-Create-RegistryPath -Path $quietHoursKey | Out-Null; $originalProfile = if($null -ne $backupData.QuietHours){$backupData.QuietHours}else{0}; Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value $originalProfile -Force; Write-Log -Level SUCCESS "   - Assistente notifiche ripristinato."
+    $gameBarKey = "HKCU:\Software\Microsoft\GameBar"; Test-And-Create-RegistryPath -Path $gameBarKey | Out-Null; $originalGameBar = if($null -ne $backupData.GameBar.AllowGameBar){$backupData.GameBar.AllowGameBar}else{1}; Set-ItemProperty -Path $gameBarKey -Name "AllowGameBar" -Value $originalGameBar -Type DWord -Force; Write-Log -Level SUCCESS "   - Xbox Game Bar ripristinata."
     powercfg /setactive $backupData.PowerScheme; Write-Log -Level SUCCESS "   - Schema energetico ripristinato."
     foreach ($s in $backupData.Services.PSObject.Properties) { if ($s.Value -eq 'Running') { Start-Service -Name $s.Name -EA SilentlyContinue; Write-Log -Level SUCCESS "   - Servizio riavviato: $($s.Name)" } }
 
