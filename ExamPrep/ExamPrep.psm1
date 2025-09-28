@@ -69,6 +69,37 @@ function Update-ExamPrepConfig {
     } catch { Write-Log -Level WARN -Message "Impossibile aggiornare il file di configurazione. Errore: $($_.Exception.Message)" }
 }
 
+function Find-ExecutablePath {
+    param([string]$ExecutableName)
+
+    # CORREZIONE: Filtra i percorsi di base per escludere quelli nulli o non esistenti
+    # prima di tentare di cercare file al loro interno.
+    $basePaths = @(
+        $env:ProgramFiles,
+        $env:ProgramFilesX86,
+        $env:LOCALAPPDATA,
+        $env:APPDATA
+    ) | Where-Object { -not [string]::IsNullOrEmpty($_) -and (Test-Path $_) }
+
+    Write-Log -Level VERBOSE -Message "Ricerca di '$ExecutableName' nelle seguenti directory di base: $($basePaths -join ', ')"
+
+    foreach ($basePath in $basePaths) {
+        $searchPath = Join-Path $basePath "*"
+        try {
+            $found = Get-ChildItem -Path $searchPath -Recurse -Filter $ExecutableName -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) {
+                Write-Log -Level VERBOSE -Message "Trovato '$ExecutableName' in: $($found.FullName)"
+                return $found.FullName
+            }
+        } catch {
+            # Ignora errori di accesso negato e continua la ricerca
+        }
+    }
+
+    Write-Log -Level VERBOSE -Message "'$ExecutableName' non trovato nei percorsi di installazione comuni."
+    return $null
+}
+
 function Invoke-ProcessClassifier {
     param($DiscoveredProcesses, $ConfigPath)
     $sessionKillList = [System.Collections.Generic.List[string]]@()
@@ -144,15 +175,31 @@ function Start-ExamPreparation {
 
         $backupData.VisualEffects.UserPreferencesMask = Get-ItemPropertyValue -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -ErrorAction SilentlyContinue
 
+        # Trova il percorso dell'eseguibile del proctor, anche se non è in esecuzione
         $proctorProc = Get-Process -Name $Script:GlobalConfig.ProctoringAppName.Replace(".exe", "") -ErrorAction SilentlyContinue
+        $proctorExePath = $null
         if ($proctorProc) {
+            $proctorExePath = $proctorProc.Path
             $backupData.ProctorProcess.Priority = $proctorProc.PriorityClass
-            $backupData.ProctorProcess.Path = $proctorProc.Path
-            $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"
-            $backupData.ProctorProcess.GpuPreference = Get-ItemPropertyValue -Path $gpuPrefKey -Name $proctorProc.Path -ErrorAction SilentlyContinue
+            Write-Log -Level VERBOSE "Applicazione proctor trovata in esecuzione. Path: $proctorExePath"
+        } else {
+            Write-Log -Level VERBOSE "Applicazione proctor non in esecuzione. Avvio ricerca dell'eseguibile..."
+            $proctorExePath = Find-ExecutablePath -ExecutableName $Script:GlobalConfig.ProctoringAppName
         }
 
-        $ipconfig = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up'}
+        # Se abbiamo trovato il percorso, salvalo ed esegui il backup delle impostazioni associate
+        if ($proctorExePath) {
+            $backupData.ProctorProcess.Path = $proctorExePath
+            $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"
+            $backupData.ProctorProcess.GpuPreference = Get-ItemPropertyValue -Path $gpuPrefKey -Name $proctorExePath -ErrorAction SilentlyContinue
+            Write-Log -Level VERBOSE "Percorso eseguibile del proctor ('$proctorExePath') salvato per le ottimizzazioni."
+        } else {
+            Write-Log -Level WARN "Impossibile trovare l'eseguibile dell'applicazione proctor. Le ottimizzazioni specifiche (GPU, QoS) non verranno applicate."
+        }
+
+        # CORREZIONE: Seleziona solo la prima configurazione di rete attiva per evitare errori
+        # in sistemi con più adattatori di rete (es. VPN, VirtualBox).
+        $ipconfig = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up'} | Select-Object -First 1
         if ($ipconfig) {
             $interfaceGuid = $ipconfig.NetAdapter.InterfaceGuid; $backupData.Network.InterfaceGuid = $interfaceGuid
             $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$interfaceGuid"
@@ -243,10 +290,22 @@ function Start-ExamPreparation {
     if ($Script:GlobalConfig.AdvancedOptimizations.EnablePCPerformance) {
         Write-Log -Level INFO -Message "[7/10] Applicazione ottimizzazioni PC avanzate..."
         if ($proctorProc) {
-            $proctorProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High; Write-Log -Level SUCCESS "   - Priorità di '$($Script:GlobalConfig.ProctoringAppName)' impostata su 'Alta'."
-            $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"; Test-And-Create-RegistryPath -Path $gpuPrefKey | Out-Null
-            Set-ItemProperty -Path $gpuPrefKey -Name $proctorProc.Path -Value "GpuPreference=2;"; Write-Log -Level SUCCESS "   - Prestazioni GPU per '$($Script:GlobalConfig.ProctoringAppName)' impostate su 'Elevate'."
+            # Il processo è in esecuzione, quindi è possibile impostare la priorità della CPU.
+            $proctorProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High
+            Write-Log -Level SUCCESS "   - Priorità CPU di '$($Script:GlobalConfig.ProctoringAppName)' impostata su 'Alta'."
         }
+        else {
+            # Il processo non è in esecuzione, logga un avviso informativo.
+            Write-Log -Level WARN "   - Applicazione proctor non in esecuzione, l'ottimizzazione della priorità CPU è stata saltata."
+            Write-Log -Level INFO "   - Le altre ottimizzazioni persistenti (GPU, Rete) verranno applicate all'avvio dell'app."
+        }
+
+        # Applica ottimizzazione GPU persistente usando il path dell'eseguibile trovato
+        if ($backupData.ProctorProcess.Path) {
+            $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"; Test-And-Create-RegistryPath -Path $gpuPrefKey | Out-Null
+            Set-ItemProperty -Path $gpuPrefKey -Name $backupData.ProctorProcess.Path -Value "GpuPreference=2;"; Write-Log -Level SUCCESS "   - Prestazioni GPU per '$($Script:GlobalConfig.ProctoringAppName)' impostate su 'Elevate' (persistente)."
+        }
+
         $perfMask = [byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00); Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value $perfMask -Type Binary
         Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" -Name "VisualFX" -Value 2; Write-Log -Level SUCCESS "   - Effetti visivi di Windows impostati per massime prestazioni."
     }
@@ -254,8 +313,9 @@ function Start-ExamPreparation {
     # 8. Ottimizzazioni Avanzate Rete
     if ($Script:GlobalConfig.AdvancedOptimizations.EnableNetworkPerformance) {
         Write-Log -Level INFO -Message "[8/10] Applicazione ottimizzazioni Rete avanzate..."
-        if ($proctorProc) {
-            try { New-NetQosPolicy -Name "ExamPrepProctoring" -AppPathNameMatchCondition $proctorProc.Path -PriorityValue8021Action 7 -ErrorAction Stop; Write-Log -Level SUCCESS "   - Policy QoS creata per '$($Script:GlobalConfig.ProctoringAppName)'." }
+        # Applica policy QoS persistente usando il path dell'eseguibile trovato
+        if ($backupData.ProctorProcess.Path) {
+            try { New-NetQosPolicy -Name "ExamPrepProctoring" -AppPathNameMatchCondition $backupData.ProctorProcess.Path -PriorityValue8021Action 7 -ErrorAction Stop; Write-Log -Level SUCCESS "   - Policy QoS creata per '$($Script:GlobalConfig.ProctoringAppName)' (persistente)." }
             catch { Write-Log -Level WARN "   - Impossibile creare policy QoS." }
         }
         if ($backupData.Network.InterfaceGuid -and $Script:GlobalConfig.AdvancedOptimizations.DisableNagleAlgorithm) {
@@ -316,7 +376,7 @@ function Start-ExamRestore {
             $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"
             if ($null -eq $backupData.ProctorProcess.GpuPreference) { Remove-ItemProperty -Path $gpuPrefKey -Name $backupData.ProctorProcess.Path -EA SilentlyContinue }
             else { Set-ItemProperty -Path $gpuPrefKey -Name $backupData.ProctorProcess.Path -Value $backupData.ProctorProcess.GpuPreference }
-            Write-Log -Level SUCCESS "   - Prestazioni GPU ripristinate."
+            Write-Log -Level SUCCESS "   - Impostazione persistente delle prestazioni GPU ripristinata."
         }
         if ($null -ne $backupData.VisualEffects.UserPreferencesMask) {
             # CORREZIONE BUG: Il valore deserializzato da JSON è un PSCustomObject.
@@ -334,7 +394,7 @@ function Start-ExamRestore {
             }
         }
         Remove-NetQosPolicy -Name "ExamPrepProctoring" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-        Write-Log -Level SUCCESS "   - Policy QoS rimossa."
+        Write-Log -Level SUCCESS "   - Policy QoS persistente rimossa."
         if ($backupData.Network.InterfaceGuid) {
             $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$($backupData.Network.InterfaceGuid)"
             if (Test-Path $nagleKeyPath) {
