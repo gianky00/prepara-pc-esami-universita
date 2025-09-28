@@ -144,8 +144,14 @@ function Start-ExamPreparation {
             $interfaceGuid = $adapter.InterfaceGuid; $backupData.Network.InterfaceGuid = $interfaceGuid
             $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$interfaceGuid"
             if (Test-Path $nagleKeyPath) {
-                $backupData.Network.TcpAckFrequency = Get-ItemPropertyValue -Path $nagleKeyPath -Name "TcpAckFrequency" -ErrorAction SilentlyContinue
-                $backupData.Network.TCPNoDelay = Get-ItemPropertyValue -Path $nagleKeyPath -Name "TCPNoDelay" -ErrorAction SilentlyContinue
+                # Metodo robusto: verifica l'esistenza della proprietà prima di leggerla per evitare errori.
+                $regKey = Get-Item -Path $nagleKeyPath
+                if ($null -ne $regKey.GetValue("TcpAckFrequency", $null)) {
+                    $backupData.Network.TcpAckFrequency = $regKey.GetValue("TcpAckFrequency")
+                }
+                if ($null -ne $regKey.GetValue("TCPNoDelay", $null)) {
+                    $backupData.Network.TCPNoDelay = $regKey.GetValue("TCPNoDelay")
+                }
             }
         }
 
