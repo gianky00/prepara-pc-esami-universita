@@ -188,8 +188,9 @@ function Start-ExamPreparation {
     if ($Script:GlobalConfig.NetworkAdapterManagement.Enabled) {
         Write-Log -Level INFO -Message "[5/9] Gestione degli adattatori di rete..."
         $primaryAdapter = $Script:GlobalConfig.NetworkAdapterManagement.PrimaryInterfaceDescription
-        # Utilizza i dati dal backup per decidere quali disabilitare, per coerenza
-        $adaptersToDisable = $backupData.NetworkAdapters | Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -ne $primaryAdapter }
+        # Utilizza i dati dal backup per decidere quali disabilitare, per coerenza.
+        # CORREZIONE: Esclude gli adattatori virtuali "WAN Miniport" che non possono essere gestiti.
+        $adaptersToDisable = $backupData.NetworkAdapters | Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -ne $primaryAdapter -and $_.InterfaceDescription -notlike "WAN Miniport*" }
 
         if ($adaptersToDisable) {
             foreach ($adapterInfo in $adaptersToDisable) {
