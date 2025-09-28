@@ -72,18 +72,21 @@ function Update-ExamPrepConfig {
 function Find-ExecutablePath {
     param([string]$ExecutableName)
 
-    $searchPaths = @(
-        (Join-Path $env:ProgramFiles -ChildPath "*"),
-        (Join-Path $env:ProgramFilesX86 -ChildPath "*"),
-        (Join-Path $env:LOCALAPPDATA -ChildPath "*"),
-        (Join-Path $env:APPDATA -ChildPath "*")
-    )
+    # CORREZIONE: Filtra i percorsi di base per escludere quelli nulli o non esistenti
+    # prima di tentare di cercare file al loro interno.
+    $basePaths = @(
+        $env:ProgramFiles,
+        $env:ProgramFilesX86,
+        $env:LOCALAPPDATA,
+        $env:APPDATA
+    ) | Where-Object { -not [string]::IsNullOrEmpty($_) -and (Test-Path $_) }
 
-    Write-Log -Level VERBOSE -Message "Ricerca di '$ExecutableName' nelle seguenti directory di base: $($searchPaths -join ', ')"
+    Write-Log -Level VERBOSE -Message "Ricerca di '$ExecutableName' nelle seguenti directory di base: $($basePaths -join ', ')"
 
-    foreach ($path in $searchPaths) {
+    foreach ($basePath in $basePaths) {
+        $searchPath = Join-Path $basePath "*"
         try {
-            $found = Get-ChildItem -Path $path -Recurse -Filter $ExecutableName -ErrorAction SilentlyContinue | Select-Object -First 1
+            $found = Get-ChildItem -Path $searchPath -Recurse -Filter $ExecutableName -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($found) {
                 Write-Log -Level VERBOSE -Message "Trovato '$ExecutableName' in: $($found.FullName)"
                 return $found.FullName
