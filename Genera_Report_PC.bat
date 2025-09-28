@@ -66,4 +66,7 @@ echo           Il file "%reportFile%" verra' ora aperto...
 timeout /t 2 >nul
 start notepad "%reportFile%"
 
+echo.
+echo Operazione completata. Premere un tasto per chiudere questa finestra.
+pause
 exit
