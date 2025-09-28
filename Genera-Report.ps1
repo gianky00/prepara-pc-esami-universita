@@ -41,13 +41,13 @@ if (Test-Path $reportFile) { Remove-Item $reportFile }
 
 # Esegue tutti i comandi e salva l'output nel file di report
 (
-    Run-And-Log -Title "INFORMAZIONI DI SISTEMA (SYSTEMINFO)" -Command { systeminfo }
-    Run-And-Log -Title "INFORMAZIONI PROCESSORE (WMIC CPU)" -Command { wmic cpu get Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed /format:list }
-    Run-And-Log -Title "INFORMAZIONI SCHEDA VIDEO (WMIC GPU)" -Command { wmic path win32_videocontroller get Name, DriverVersion, AdapterRAM /format:list }
-    Run-And-Log -Title "INFORMAZIONI MEMORIA RAM (WMIC MEMORY)" -Command { wmic MemoryChip get BankLabel, Capacity, MemoryType, Speed /format:list }
-    Run-And-Log -Title "INFORMAZIONI DISCHI FISICI (WMIC DISKDRIVE)" -Command { wmic diskdrive get Model, Size, InterfaceType /format:list }
-    Run-And-Log -Title "CONFIGURAZIONE DI RETE (IPCONFIG)" -Command { ipconfig /all }
-    Run-And-Log -Title "PIANI DI RISPARMIO ENERGETICO (POWERCFG)" -Command { powercfg /list }
+    Run-And-Log -Title "INFORMAZIONI DI SISTEMA (SYSTEMINFO)" -Command { systeminfo };
+    Run-And-Log -Title "INFORMAZIONI PROCESSORE (WMIC CPU)" -Command { wmic cpu get Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed /format:list };
+    Run-And-Log -Title "INFORMAZIONI SCHEDA VIDEO (WMIC GPU)" -Command { wmic path win32_videocontroller get Name, DriverVersion, AdapterRAM /format:list };
+    Run-And-Log -Title "INFORMAZIONI MEMORIA RAM (WMIC MEMORY)" -Command { wmic MemoryChip get BankLabel, Capacity, MemoryType, Speed /format:list };
+    Run-And-Log -Title "INFORMAZIONI DISCHI FISICI (WMIC DISKDRIVE)" -Command { wmic diskdrive get Model, Size, InterfaceType /format:list };
+    Run-And-Log -Title "CONFIGURAZIONE DI RETE (IPCONFIG)" -Command { ipconfig /all };
+    Run-And-Log -Title "PIANI DI RISPARMIO ENERGETICO (POWERCFG)" -Command { powercfg /list };
 
 ) | Out-File -FilePath $reportFile -Encoding UTF8 -Append
 
