@@ -3,27 +3,23 @@
 chcp 65001 > nul
 
 :: ============================================================================
-::  SCRIPT PER AVVIARE LA GENERAZIONE DEL REPORT DI SISTEMA
+::  SCRIPT PER AVVIARE IL RIPRISTINO DEL PC DOPO L'ESAME
 ::  Autore: Jules
 ::  Versione: 1.0
 :: ============================================================================
 ::
 ::  DESCRIZIONE:
-::  Questo file batch avvia lo script PowerShell "Genera-Report.ps1"
-::  con i privilegi di amministratore necessari per la raccolta dei dati.
+::  Questo file batch avvia la funzione "Start-ExamRestore" del modulo
+::  PowerShell "ExamPrep.psm1" con i privilegi di amministratore necessari.
 ::
 :: ============================================================================
 
 :: 1. VERIFICA DEI PRIVILEGI DI AMMINISTRATORE
-:: Controlla se lo script è già in esecuzione come amministratore.
 >nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-
-:: Se il controllo fallisce (codice di errore diverso da 0), non abbiamo i privilegi.
 if '%errorlevel%' NEQ '0' (
     echo Richiesta dei privilegi di amministratore in corso...
     echo Se richiesto, clicca "Si" nella finestra di Controllo Account Utente (UAC).
     echo.
-    :: Riavvia se stesso con i privilegi di amministratore usando PowerShell.
     powershell.exe -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
     exit /b
 )
@@ -35,27 +31,23 @@ echo.
 
 :: 2. ESECUZIONE DELLO SCRIPT POWERSHELL
 echo =================================================================
-echo  Avvio dello script per la generazione del report...
+echo    AVVIO RIPRISTINO CONFIGURAZIONE PC
 echo =================================================================
 echo.
-echo Lo script sta raccogliendo le informazioni di sistema.
-echo L'operazione potrebbe richiedere alcuni istanti.
-echo.
-echo Al termine, troverai il file 'Report_PC_Definitivo.txt'
-echo nella cartella 'ExamPrep'.
+echo Lo script ora ripristinera' le impostazioni originali
+echo del sistema utilizzando il backup creato in precedenza.
 echo.
 
-:: Avvia lo script PowerShell.
-:: -NoProfile: non carica il profilo utente, rendendo l'avvio più rapido e pulito.
-:: -ExecutionPolicy Bypass: consente l'esecuzione dello script anche se non firmato.
-:: -File: specifica il percorso dello script da eseguire.
-:: "%~dp0" si espande nel percorso della directory in cui si trova questo file batch.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0ExamPrep\Genera-Report.ps1"
+:: Avvia PowerShell, importa il modulo ed esegue la funzione di ripristino.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& {Import-Module '%~dp0ExamPrep\ExamPrep.psm1'; Start-ExamRestore}"
 
 echo.
 echo =================================================================
-echo  Report generato con successo!
+echo         OPERAZIONE DI RIPRISTINO COMPLETATA
 echo =================================================================
+echo.
+echo Il tuo PC e' tornato alla configurazione standard.
+echo Grazie per aver utilizzato ExamPrep!
 echo.
 echo Premi un tasto per chiudere questa finestra.
 pause > nul

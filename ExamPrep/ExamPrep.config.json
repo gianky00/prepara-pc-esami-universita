@@ -1,0 +1,17 @@
+{
+    "//": "File di configurazione per lo script ExamPrep.",
+    "//": "Questo file permette di personalizzare il comportamento dello script senza modificare il codice.",
+
+    "ProcessiDaIgnorare": [
+        "//", "Lista dei nomi dei processi (senza .exe) che non devono mai essere terminati.",
+        "//", "Questi sono solitamente i browser, il software dell'esame e altri strumenti essenziali.",
+        "chrome",
+        "EcampusProctor",
+        "SEE"
+    ],
+
+    "ProcessiSempreDaChiudere": [
+        "//", "Lista dei nomi dei processi (senza .exe) che devono essere sempre chiusi senza chiedere conferma.",
+        "//", "Utile per applicazioni note per causare problemi o consumare molte risorse (es. client di gioco, streaming, ecc.).",
+    ]
+}

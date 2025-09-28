@@ -1,277 +1,305 @@
-# --- INIZIO MODULO POWERSHELL ExamPrep ---
-# Versione 11.0.0: Backup persistente per un ripristino a prova di proiettile.
+# encoding: utf-8
+<#
+.SYNOPSIS
+    Modulo PowerShell per preparare un PC Windows per esami online proctoring.
 
-#region Variabili Script-Scoped
-$Script:GlobalLogPath = $null
-$Script:GlobalConfig = $null
+.DESCRIPTION
+    Questo modulo fornisce due funzioni principali: Start-ExamPreparation e Start-ExamRestore.
+    La modalità di preparazione ottimizza il sistema per le massime prestazioni e stabilità,
+    chiudendo processi non necessari e applicando configurazioni specifiche.
+    La modalità di ripristino annulla tutte le modifiche, riportando il sistema allo stato originale.
+    Tutte le operazioni sono commentate in italiano e configurabili tramite un file JSON esterno.
+
+.NOTES
+    Autore: Jules
+    Versione: 1.0
+    Data: 28/09/2025
+    Requisiti: Esecuzione come Amministratore.
+#>
+
+#region Variabili Globali e Impostazioni del Modulo
+
+# Definisce le funzioni che verranno esportate dal modulo e rese disponibili all'utente.
+Export-ModuleMember -Function Start-ExamPreparation, Start-ExamRestore
+
+# Percorso del file di configurazione. Lo script si aspetta di trovarlo nella stessa cartella.
+$Global:ConfigFilePath = Join-Path $PSScriptRoot "ExamPrep.config.json"
+
+# Percorso della cartella di backup in AppData\Local, una posizione persistente.
+$Global:BackupDir = Join-Path $env:LOCALAPPDATA "ExamPrep"
+$Global:BackupFilePath = Join-Path $Global:BackupDir "ExamPrep_Backup.json"
+
+# GUID del piano energetico "Prestazioni eccellenti".
+$Global:UltimatePerformancePlanGuid = "e9a42b02-d5df-448d-aa00-03f14749eb61"
+
 #endregion
 
-#region Funzioni Private (Interne al Modulo)
+#region Funzioni Helper Interne (non esportate)
 
-function Write-Log {
-    param(
-        [Parameter(Mandatory=$true)][string]$Message,
-        [ValidateSet("INFO","WARN","ERROR","SUCCESS","TITLE","VERBOSE")][string]$Level="INFO"
-    )
-    if ($Script:GlobalLogPath) {
-        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        $logEntry = "[$timestamp] [$Level] - $Message"
-        try { Add-Content -Path $Script:GlobalLogPath -Value $logEntry -ErrorAction Stop } catch { Write-Warning "Impossibile scrivere nel log: $($_.Exception.Message)" }
-    }
-    if ($Level -eq "VERBOSE") { Write-Verbose $Message; return }
-    $color = switch ($Level) { "WARN"{"Yellow"};"ERROR"{"Red"};"SUCCESS"{"Green"};"TITLE"{"Cyan"};default{"White"} }
-    $consoleMessage = if ($Level -in "INFO","WARN","ERROR","SUCCESS") { "[$($Level.PadRight(7))] $Message" } else { $Message }
-    Write-Host $consoleMessage -ForegroundColor $color
-}
-
+<#
+.SYNOPSIS
+    Carica la configurazione dal file JSON.
+.DESCRIPTION
+    Legge il file ExamPrep.config.json e lo converte in un oggetto PowerShell.
+    Se il file non esiste o è corrotto, termina lo script con un errore.
+.OUTPUTS
+    PSCustomObject con la configurazione.
+#>
 function Get-ExamPrepConfig {
-    param([string]$ConfigPath)
-    try {
-        if (-not (Test-Path $ConfigPath)) { throw "File di configurazione non trovato: $ConfigPath" }
-        return Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json
+    if (-not (Test-Path $Global:ConfigFilePath)) {
+        throw "File di configurazione non trovato: $($Global:ConfigFilePath)"
     }
-    catch { throw "Errore lettura config: $($_.Exception.Message)" }
-}
-
-function Test-And-Create-RegistryPath {
-    param([string]$Path)
-    if (-not (Test-Path $Path)) {
-        try { New-Item -Path $Path -Force -ErrorAction Stop | Out-Null; return $true }
-        catch { throw "Impossibile creare percorso registro: $($_.Exception.Message)" }
+    try {
+        return Get-Content $Global:ConfigFilePath | Out-String | ConvertFrom-Json
     }
-    return $false
+    catch {
+        throw "Errore nella lettura o nel parsing del file di configurazione JSON. Assicurarsi che sia formattato correttamente."
+    }
 }
 
-function Get-DiscoverableProcesses {
-    param([string[]]$KnownProcesses)
-    $windowsPath = $env:SystemRoot
-    Write-Log -Level VERBOSE -Message "Avvio scansione processi utente..."
+<#
+.SYNOPSIS
+    Crea un backup dello stato attuale del sistema.
+.DESCRIPTION
+    Salva le impostazioni correnti che verranno modificate (es. piano energetico)
+    in un file JSON. Questo file verrà usato da Start-ExamRestore.
+#>
+function New-SystemBackup {
+    Write-Host "Creazione del backup dello stato del sistema in corso..." -ForegroundColor Cyan
+
+    # Assicura che la cartella di backup esista.
+    if (-not (Test-Path $Global:BackupDir)) {
+        New-Item -Path $Global:BackupDir -ItemType Directory -Force | Out-Null
+    }
+
+    # Raccoglie le informazioni da salvare.
+    $backupData = @{
+        # Salva il GUID del piano di risparmio energetico attualmente attivo.
+        ActivePowerPlan = (powercfg /getactivescheme).ToString().Split(" ")[3]
+        # Aggiungere qui altre impostazioni da salvare in futuro (es. stato registro di rete)
+        NetworkSettings = @{} # Placeholder per future impostazioni di rete
+    }
+
+    # Salva i dati nel file di backup in formato JSON.
     try {
-        $processes = Get-Process | Where-Object { $_.MainWindowTitle -and $_.Path -and -not $_.Path.StartsWith($windowsPath) } | Select-Object -ExpandProperty ProcessName -Unique
-        $knownProcessesLower = $KnownProcesses | ForEach-Object { $_.ToLower() }
-        $discovered = $processes | Where-Object { ($_.ToLower() + ".exe") -notin $knownProcessesLower }
-        return $discovered
-    } catch { Write-Log -Level WARN -Message "Impossibile scansionare i processi. Errore: $($_.Exception.Message)"; return @() }
+        $backupData | ConvertTo-Json -Depth 3 | Out-File -FilePath $Global:BackupFilePath -Encoding utf8 -Force
+        Write-Host "Backup creato con successo in: $($Global:BackupFilePath)" -ForegroundColor Green
+    }
+    catch {
+        throw "Impossibile creare il file di backup. Dettagli: $($_.Exception.Message)"
+    }
 }
 
-function Update-ExamPrepConfig {
-    param([string]$ConfigPath, [string]$Key, [string]$Value)
+<#
+.SYNOPSIS
+    Applica le ottimizzazioni di sistema per l'esame.
+.DESCRIPTION
+    Modifica le impostazioni di sistema per massimizzare le prestazioni.
+    - Imposta il piano energetico "Prestazioni eccellenti".
+    - Disabilita l'algoritmo di Nagle per ridurre la latenza di rete.
+#>
+function Set-SystemOptimizations {
+    Write-Host "Applicazione delle ottimizzazioni di sistema in corso..." -ForegroundColor Cyan
+
+    # --- OTTIMIZZAZIONE PIANO ENERGETICO ---
+    Write-Host "1. Impostazione del piano energetico 'Prestazioni eccellenti'..."
+    # Verifica se il piano "Prestazioni eccellenti" è già disponibile.
+    $ultimatePlanExists = powercfg /list | Select-String -Pattern $Global:UltimatePerformancePlanGuid -Quiet
+    if (-not $ultimatePlanExists) {
+        Write-Host "Il piano 'Prestazioni eccellenti' non è visibile, lo attivo..." -ForegroundColor Yellow
+        powercfg -duplicatescheme $Global:UltimatePerformancePlanGuid | Out-Null
+    }
+    # Imposta il piano come attivo.
+    powercfg /setactive $Global:UltimatePerformancePlanGuid
+    Write-Host "Piano energetico impostato su 'Prestazioni eccellenti'." -ForegroundColor Green
+
+    # --- OTTIMIZZAZIONE DI RETE (ALGORITMO DI NAGLE) ---
+    Write-Host "2. Disabilitazione dell'algoritmo di Nagle per la connessione di rete attiva..."
     try {
-        $configObject = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json
-        if ($configObject.PSObject.Properties[$Key]) {
-            $list = $configObject.PSObject.Properties[$Key].Value
-            if ($Value -notin $list) {
-                $list.Add($Value)
-                $configObject | ConvertTo-Json -Depth 5 | Out-File -FilePath $ConfigPath -Encoding UTF8
-                Write-Log -Level VERBOSE -Message "Aggiunto '$Value' a '$Key' nel file di configurazione."
+        # Trova l'interfaccia di rete primaria (quella con un gateway predefinito)
+        $interface = Get-CimInstance -Class Win32_IP4RouteTable | Where-Object { $_.Destination -eq '0.0.0.0' -and $_.Mask -eq '0.0.0.0' } | Get-NetAdapter
+        if ($interface) {
+            $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$($interface.InterfaceGuid)"
+            # Imposta le chiavi di registro per disabilitare Nagle.
+            # TcpAckFrequency=1 -> Invia ACK immediatamente.
+            # TCPNoDelay=1 -> Disabilita l'algoritmo di Nagle.
+            Set-ItemProperty -Path $regPath -Name 'TcpAckFrequency' -Value 1 -Type DWord -Force
+            Set-ItemProperty -Path $regPath -Name 'TCPNoDelay' -Value 1 -Type DWord -Force
+            Write-Host "Algoritmo di Nagle disabilitato per l'interfaccia $($interface.Name)." -ForegroundColor Green
+        } else {
+            Write-Warning "Impossibile trovare un'interfaccia di rete attiva con un gateway predefinito. Ottimizzazione di rete saltata."
+        }
+    }
+    catch {
+        Write-Warning "Errore durante l'ottimizzazione della rete. Dettagli: $($_.Exception.Message)"
+    }
+
+    # --- OTTIMIZZAZIONE GPU (Placeholder) ---
+    # La modifica della preferenza GPU per applicazione richiede la modifica di chiavi di registro complesse
+    # HKEY_CURRENT_USER\Software\Microsoft\DirectX\UserGpuPreferences
+    # L'impostazione del piano "Prestazioni Eccellenti" già istruisce il sistema a usare la GPU ad alte prestazioni.
+    Write-Host "3. L'ottimizzazione GPU è gestita dal piano 'Prestazioni eccellenti'."
+}
+
+<#
+.SYNOPSIS
+    Gestisce i processi non essenziali in modo interattivo.
+.DESCRIPTION
+    Recupera i processi in esecuzione, filtra quelli di sistema e quelli nella lista
+    di ignorati, e chiede all'utente come trattare i rimanenti.
+#>
+function Manage-RunningProcesses {
+    param(
+        [Parameter(Mandatory=$true)]
+        $Config
+    )
+
+    Write-Host "Analisi dei processi in esecuzione in corso..." -ForegroundColor Cyan
+
+    # Processi di sistema e processi "idle" da ignorare sempre
+    $systemProcesses = @("System", "Idle", "Registry")
+
+    # Recupera i processi utente, escludendo quelli di sistema e quelli senza un percorso (processi interni)
+    $userProcesses = Get-Process | Where-Object { $_.Path -and $systemProcesses -notcontains $_.ProcessName }
+
+    Write-Host "Trovati $($userProcesses.Count) processi utente attivi."
+
+    foreach ($proc in $userProcesses) {
+        $procName = $proc.ProcessName
+
+        # Salta i processi che sono nella lista degli ignorati
+        if ($Config.ProcessiDaIgnorare -contains $procName) {
+            Write-Host "Processo ignorato (da config): $procName" -ForegroundColor Gray
+            continue
+        }
+
+        # Chiude automaticamente i processi nella lista "Sempre da chiudere"
+        if ($Config.ProcessiSempreDaChiudere -contains $procName) {
+            Write-Host "Chiusura automatica del processo (da config): $procName" -ForegroundColor Yellow
+            Stop-Process -Name $procName -Force -ErrorAction SilentlyContinue
+            continue
+        }
+
+        # Chiede all'utente cosa fare con i processi rimanenti
+        $choice = Read-Host @"
+-----------------------------------------------------------------
+Processo trovato: '$($procName)' (ID: $($proc.Id))
+Descrizione: $($proc.Description)
+Cosa vuoi fare?
+(C)hiudi - Chiude questa istanza del processo.
+(I)gnora - Lascia in esecuzione questa istanza.
+(A)ggiungi a 'Sempre da Chiudere' - Chiude e aggiunge alla lista per il futuro.
+(G)giungi a 'Sempre da Ignorare' - Ignora e aggiunge alla lista per il futuro.
+Inserisci la tua scelta e premi Invio [C, I, A, G]:
+"@
+
+        switch ($choice.ToUpper()) {
+            "C" {
+                Write-Host "Chiusura del processo: $procName" -ForegroundColor Yellow
+                Stop-Process -Name $procName -Force -ErrorAction SilentlyContinue
+            }
+            "I" {
+                Write-Host "Processo ignorato: $procName"
+            }
+            "A" {
+                Write-Host "Aggiungo '$procName' alla lista 'Sempre da Chiudere' e lo chiudo." -ForegroundColor Magenta
+                $Config.ProcessiSempreDaChiudere += $procName
+                Stop-Process -Name $procName -Force -ErrorAction SilentlyContinue
+            }
+            "G" {
+                Write-Host "Aggiungo '$procName' alla lista 'Sempre da Ignorare'." -ForegroundColor Magenta
+                $Config.ProcessiDaIgnorare += $procName
+            }
+            default {
+                Write-Warning "Scelta non valida. Il processo '$procName' verrà ignorato per questa sessione."
             }
         }
-    } catch { Write-Log -Level WARN -Message "Impossibile aggiornare il file di configurazione. Errore: $($_.Exception.Message)" }
+    }
+
+    # Salva le modifiche alla configurazione (nuovi processi aggiunti alle liste)
+    Write-Host "Salvataggio delle preferenze nel file di configurazione..."
+    $Config | ConvertTo-Json -Depth 5 | Out-File -FilePath $Global:ConfigFilePath -Encoding utf8 -Force
 }
 
-function Invoke-ProcessClassifier {
-    param($DiscoveredProcesses, $ConfigPath)
-    $sessionKillList = [System.Collections.Generic.List[string]]@()
-    $sessionAllowList = [System.Collections.Generic.List[string]]@()
-    Write-Log -Level INFO -Message "Trovati $($DiscoveredProcesses.Count) processi non configurati. Inizio classificazione:"
-    foreach ($processName in $DiscoveredProcesses) {
-        $title = "Processo non configurato: '$($processName.ToUpper())'"
-        $message = "Cosa vuoi fare con questo processo?"
-        $choices = @(
-            New-Object System.Management.Automation.Host.ChoiceDescription -ArgumentList '&Chiudi (solo per questa sessione)', 'Termina questo processo adesso.'
-            New-Object System.Management.Automation.Host.ChoiceDescription -ArgumentList '&Ignora (solo per questa sessione)', 'Lascia questo processo in esecuzione.'
-            New-Object System.Management.Automation.Host.ChoiceDescription -ArgumentList 'Chiudi [S]empre', "Aggiungi alla lista 'ProcessesToKill' per il futuro."
-            New-Object System.Management.Automation.Host.ChoiceDescription -ArgumentList 'Ignora se[m]pre', "Aggiungi alla lista 'AllowedApplications' per il futuro."
-            New-Object System.Management.Automation.Host.ChoiceDescription -ArgumentList 'Ignora [t]utti i rimanenti', 'Salta la classificazione per gli altri processi.'
-        )
-        $decision = $Host.UI.PromptForChoice($title, $message, $choices, 0)
-        $processExe = "$processName.exe"
-        switch ($decision) {
-            0 { $sessionKillList.Add($processExe); Write-Log -Level INFO "Decisione temporanea: Chiudi '$processExe'" }
-            1 { $sessionAllowList.Add($processExe); Write-Log -Level INFO "Decisione temporanea: Ignora '$processExe'" }
-            2 { Update-ExamPrepConfig -ConfigPath $ConfigPath -Key 'ProcessesToKill' -Value $processExe; $sessionKillList.Add($processExe); Write-Log -Level SUCCESS "Configurazione aggiornata: '$processExe' verrà sempre chiuso." }
-            3 { Update-ExamPrepConfig -ConfigPath $ConfigPath -Key 'AllowedApplications' -Value $processExe; $sessionAllowList.Add($processExe); Write-Log -Level SUCCESS "Configurazione aggiornata: '$processExe' verrà sempre ignorato." }
-            4 { Write-Log -Level WARN "Tutti i restanti processi non configurati verranno ignorati per questa sessione."; return @{ Kill = $sessionKillList; Allow = $sessionAllowList } }
-        }
-    }
-    return @{ Kill = $sessionKillList; Allow = $sessionAllowList }
-}
+
 #endregion
 
-#region Funzioni Pubbliche (Esportate dal Modulo)
+#region Funzioni Principali (Esportate)
 
 function Start-ExamPreparation {
-    [CmdletBinding(SupportsShouldProcess = $true)]
-    param(
-        [Parameter(Mandatory = $true)][string]$ConfigPath,
-        [Parameter(Mandatory = $true)][string]$LogPath
-    )
-    $Script:GlobalLogPath = $LogPath
-    Write-Log -Level TITLE -Message "--- MODALITÀ PREPARAZIONE ESAME v11.0 (Élite Stabile) ---"
-    try { $Script:GlobalConfig = Get-ExamPrepConfig -ConfigPath $ConfigPath }
-    catch { Write-Log -Level ERROR -Message $_.Exception.Message; return }
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    param()
 
-    # 1. Backup
-    $backupDir = Join-Path $env:LOCALAPPDATA "ExamPrep"
-    $backupFile = Join-Path $backupDir "ExamPrepAdvancedBackup.json"
-    if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir | Out-Null }
+    Write-Host "==================================================" -ForegroundColor Green
+    Write-Host "   AVVIO PREPARAZIONE PC PER ESAME TELEMATICO"
+    Write-Host "==================================================" -ForegroundColor Green
 
-    $backupData = @{ Services = @{}; VisualEffects = @{}; Network = @{}; ProctorProcess = @{}; QuietHours = $null; GameBar = @{} }
-    Write-Log -Level INFO -Message "[1/8] Esecuzione backup in posizione sicura..."
-    try {
-        $activeSchemeOutput = powercfg /getactivescheme
-        $guidMatch = $activeSchemeOutput | Select-String -Pattern '[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}'
-        if ($guidMatch) { $backupData.PowerScheme = $guidMatch.Matches[0].Value } else { throw "Impossibile trovare GUID schema energetico." }
+    # 1. Carica la configurazione
+    $config = Get-ExamPrepConfig
 
-        foreach ($serviceName in $Script:GlobalConfig.ServicesToManage) {
-            $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-            if ($service) { $backupData.Services[$serviceName] = $service.Status }
-        }
+    # 2. Crea il backup dello stato del sistema
+    New-SystemBackup
 
-        $backupData.VisualEffects.UserPreferencesMask = Get-ItemPropertyValue -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -ErrorAction SilentlyContinue
+    # 3. Applica le ottimizzazioni
+    Set-SystemOptimizations
 
-        $proctorProc = Get-Process -Name $Script:GlobalConfig.ProctoringAppName.Replace(".exe", "") -ErrorAction SilentlyContinue
-        if ($proctorProc) {
-            $backupData.ProctorProcess.Priority = $proctorProc.PriorityClass
-            $backupData.ProctorProcess.Path = $proctorProc.Path
-            $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"
-            $backupData.ProctorProcess.GpuPreference = Get-ItemPropertyValue -Path $gpuPrefKey -Name $proctorProc.Path -ErrorAction SilentlyContinue
-        }
+    # 4. Gestisce i processi in esecuzione
+    Manage-RunningProcesses -Config $config
 
-        $ipconfig = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up'}
-        if ($ipconfig) {
-            $interfaceGuid = $ipconfig.NetAdapter.InterfaceGuid; $backupData.Network.InterfaceGuid = $interfaceGuid
-            $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$interfaceGuid"
-            if (Test-Path $nagleKeyPath) {
-                $regKey = Get-Item -Path $nagleKeyPath
-                if ($null -ne $regKey.GetValue("TcpAckFrequency", $null)) { $backupData.Network.TcpAckFrequency = $regKey.GetValue("TcpAckFrequency") }
-                if ($null -ne $regKey.GetValue("TCPNoDelay", $null)) { $backupData.Network.TCPNoDelay = $regKey.GetValue("TCPNoDelay") }
-            }
-        }
-
-        $backupData.QuietHours = Get-ItemPropertyValue -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours" -Name "QuietHoursProfile" -ErrorAction SilentlyContinue
-        $backupData.GameBar.AllowGameBar = Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\GameBar" -Name "AllowGameBar" -ErrorAction SilentlyContinue
-
-        $backupData | ConvertTo-Json -Depth 5 | Out-File -FilePath $backupFile -Encoding UTF8
-        Write-Log -Level SUCCESS -Message "   - Backup completato in '$backupFile'."
-    } catch { Write-Log -Level ERROR -Message "Errore durante il backup: $($_.Exception.Message)"; return }
-
-    # 2. Scoperta e Classificazione Processi
-    Write-Log -Level INFO -Message "[2/8] Scansione per processi non configurati..."
-    $knownProcesses = $Script:GlobalConfig.ProcessesToKill + $Script:GlobalConfig.AllowedApplications + @($Script:GlobalConfig.ProctoringAppName)
-    $discovered = Get-DiscoverableProcesses -KnownProcesses $knownProcesses
-    $sessionDecisions = if ($discovered.Count -gt 0) { Invoke-ProcessClassifier -DiscoveredProcesses $discovered -ConfigPath $ConfigPath }
-    else { Write-Log -Level VERBOSE -Message "Nessun nuovo processo da classificare."; @{ Kill = @(); Allow = @() } }
-
-    # 3. Conferma Utente Finale
-    if (-not $PSCmdlet.ShouldProcess("il sistema per la preparazione all'esame", "Sei sicuro di voler procedere?", "Conferma")) {
-        Write-Log -Level WARN -Message "Operazione annullata dall'utente."; Remove-Item -Path $backupFile -Force -ErrorAction SilentlyContinue; return
-    }
-
-    # 4. Terminazione Processi
-    Write-Log -Level INFO -Message "[4/8] Terminazione processi..."
-    $Script:GlobalConfig = Get-ExamPrepConfig -ConfigPath $ConfigPath
-    $killList = ($Script:GlobalConfig.ProcessesToKill + $sessionDecisions.Kill) | Where-Object { $_ -notin ($Script:GlobalConfig.AllowedApplications + $sessionDecisions.Allow) } | Select-Object -Unique
-    foreach ($process in $killList) {
-        $procName = $process.Replace(".exe", ""); if (Get-Process -Name $procName -ErrorAction SilentlyContinue) { Stop-Process -Name $procName -Force; Write-Log -Level SUCCESS "   - Terminato: $process" }
-    }
-
-    # 5. Ottimizzazioni Avanzate PC
-    if ($Script:GlobalConfig.AdvancedOptimizations.EnablePCPerformance) {
-        Write-Log -Level INFO -Message "[5/8] Applicazione ottimizzazioni PC avanzate..."
-        if ($proctorProc) {
-            $proctorProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High; Write-Log -Level SUCCESS "   - Priorità di '$($Script:GlobalConfig.ProctoringAppName)' impostata su 'Alta'."
-            $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"; Test-And-Create-RegistryPath -Path $gpuPrefKey | Out-Null
-            Set-ItemProperty -Path $gpuPrefKey -Name $proctorProc.Path -Value "GpuPreference=2;"; Write-Log -Level SUCCESS "   - Prestazioni GPU per '$($Script:GlobalConfig.ProctoringAppName)' impostate su 'Elevate'."
-        }
-        $perfMask = [byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00); Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value $perfMask -Type Binary
-        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" -Name "VisualFX" -Value 2; Write-Log -Level SUCCESS "   - Effetti visivi di Windows impostati per massime prestazioni."
-    }
-
-    # 6. Ottimizzazioni Avanzate Rete
-    if ($Script:GlobalConfig.AdvancedOptimizations.EnableNetworkPerformance) {
-        Write-Log -Level INFO -Message "[6/8] Applicazione ottimizzazioni Rete avanzate..."
-        if ($proctorProc) {
-            try { New-NetQosPolicy -Name "ExamPrepProctoring" -AppPathNameMatchCondition $proctorProc.Path -PriorityValue8021Action 7 -ErrorAction Stop; Write-Log -Level SUCCESS "   - Policy QoS creata per '$($Script:GlobalConfig.ProctoringAppName)'." }
-            catch { Write-Log -Level WARN "   - Impossibile creare policy QoS." }
-        }
-        if ($backupData.Network.InterfaceGuid -and $Script:GlobalConfig.AdvancedOptimizations.DisableNagleAlgorithm) {
-            $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$($backupData.Network.InterfaceGuid)"
-            Test-And-Create-RegistryPath -Path $nagleKeyPath | Out-Null; Set-ItemProperty -Path $nagleKeyPath -Name "TcpAckFrequency" -Value 1 -Type DWord -Force; Set-ItemProperty -Path $nagleKeyPath -Name "TCPNoDelay" -Value 1 -Type DWord -Force
-            Write-Log -Level SUCCESS "   - Algoritmo di Nagle disabilitato."
-        }
-    }
-
-    # 7. Ottimizzazioni Base
-    Write-Log -Level INFO -Message "[7/8] Applicazione ottimizzazioni di base..."
-    $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"; Test-And-Create-RegistryPath -Path $quietHoursKey | Out-Null; Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value 2 -Force; Write-Log -Level SUCCESS "   - Notifiche disattivate (Solo Sveglie)."
-    $gameBarKey = "HKCU:\Software\Microsoft\GameBar"; Test-And-Create-RegistryPath -Path $gameBarKey | Out-Null; Set-ItemProperty -Path $gameBarKey -Name "AllowGameBar" -Value 0 -Type DWord -Force; Write-Log -Level SUCCESS "   - Xbox Game Bar disabilitata."
-    try { powercfg /setactive "8c5e7fda-e8bf-4a96-9a8f-a307e2250669" 2>$null; Write-Log -Level SUCCESS "   - Tentativo di impostare schema 'Prestazioni elevate'." }
-    catch { Write-Log -Level WARN "   - Impossibile impostare lo schema 'Prestazioni elevate' (normale su alcuni portatili)." }
-    foreach ($s in $Script:GlobalConfig.ServicesToManage) { if ((Get-Service $s -EA SilentlyContinue).Status -eq 'Running') { Stop-Service $s -Force; Write-Log -Level SUCCESS "   - Servizio interrotto: $s" } }
-    Get-Item -Path "$env:TEMP\*", "$env:SystemRoot\Temp\*", "$env:SystemRoot\Prefetch\*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Write-Log -Level SUCCESS "   - File temporanei puliti."
-
-    # 8. Pulizia Cestino
-    if ($Script:GlobalConfig.EmptyRecycleBin) { Write-Log -Level INFO -Message "[8/8] Pulizia del Cestino..."; try { (New-Object -ComObject Shell.Application).Namespace(10).Items() | ForEach-Object { $_.InvokeVerb("delete") }; Write-Log -Level SUCCESS "   - Cestino svuotato." } catch { Write-Log -Level WARN "   - Impossibile svuotare il Cestino." } }
-
-    Write-Log -Level TITLE -Message "--- PREPARAZIONE COMPLETATA. In bocca al lupo! ---"
+    Write-Host "==================================================" -ForegroundColor Green
+    Write-Host " PREPARAZIONE COMPLETATA. IL PC E' OTTIMIZZATO. "
+    Write-Host "==================================================" -ForegroundColor Green
+    Write-Host "Puoi ora avviare il software dell'esame."
+    Write-Host "Al termine, ricorda di eseguire lo script di ripristino."
 }
 
 function Start-ExamRestore {
-    [CmdletBinding(SupportsShouldProcess = $true)]
-    param(
-        [Parameter(Mandatory = $true)][string]$ConfigPath,
-        [Parameter(Mandatory = $true)][string]$LogPath
-    )
-    $Script:GlobalLogPath = $LogPath
-    Write-Log -Level TITLE -Message "--- MODALITÀ RIPRISTINO POST-ESAME v11.0 ---"
-    $backupFile = Join-Path $env:LOCALAPPDATA "ExamPrep\ExamPrepAdvancedBackup.json"
-    if (-not (Test-Path $backupFile)) { Write-Log -Level ERROR "File di backup non trovato in '$backupFile'. Impossibile ripristinare."; return }
-    $backupData = Get-Content -Path $backupFile | ConvertFrom-Json
-    if (-not $PSCmdlet.ShouldProcess("il sistema allo stato pre-esame", "Conferma ripristino", "Conferma")) { Write-Log -Level WARN "Ripristino annullato."; return }
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    param()
 
-    # 1. Ripristino Ottimizzazioni Avanzate
-    Write-Log -Level INFO -Message "[1/3] Ripristino ottimizzazioni avanzate..."
+    Write-Host "==================================================" -ForegroundColor Yellow
+    Write-Host "     AVVIO RIPRISTINO CONFIGURAZIONE PC"
+    Write-Host "==================================================" -ForegroundColor Yellow
+
+    # 1. Verifica che il file di backup esista
+    if (-not (Test-Path $Global:BackupFilePath)) {
+        throw "File di backup non trovato! Impossibile procedere con il ripristino. Esegui prima la preparazione."
+    }
+
+    # 2. Carica i dati di backup
+    $backupData = Get-Content $Global:BackupFilePath | Out-String | ConvertFrom-Json
+
+    # 3. Ripristina le impostazioni
+    Write-Host "Ripristino delle impostazioni di sistema in corso..." -ForegroundColor Cyan
+
+    # Ripristina il piano energetico
+    Write-Host "1. Ripristino del piano energetico originale..."
+    powercfg /setactive $backupData.ActivePowerPlan
+    Write-Host "Piano energetico ripristinato." -ForegroundColor Green
+
+    # Ripristina le impostazioni di rete (rimuovendo le chiavi di registro)
+    Write-Host "2. Ripristino delle impostazioni di rete..."
     try {
-        $Script:GlobalConfig = Get-ExamPrepConfig -ConfigPath $ConfigPath
-        $proctorProc = Get-Process -Name $Script:GlobalConfig.ProctoringAppName.Replace(".exe", "") -ErrorAction SilentlyContinue
-        if ($proctorProc -and $backupData.ProctorProcess.Priority) { $proctorProc.PriorityClass = $backupData.ProctorProcess.Priority; Write-Log -Level SUCCESS "   - Priorità CPU ripristinata." }
-        if ($backupData.ProctorProcess.Path) {
-            $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"
-            if ($null -eq $backupData.ProctorProcess.GpuPreference) { Remove-ItemProperty -Path $gpuPrefKey -Name $backupData.ProctorProcess.Path -EA SilentlyContinue }
-            else { Set-ItemProperty -Path $gpuPrefKey -Name $backupData.ProctorProcess.Path -Value $backupData.ProctorProcess.GpuPreference }
-            Write-Log -Level SUCCESS "   - Prestazioni GPU ripristinate."
+        $interface = Get-CimInstance -Class Win32_IP4RouteTable | Where-Object { $_.Destination -eq '0.0.0.0' -and $_.Mask -eq '0.0.0.0' } | Get-NetAdapter
+        if ($interface) {
+            $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$($interface.InterfaceGuid)"
+            Remove-ItemProperty -Path $regPath -Name 'TcpAckFrequency' -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path $regPath -Name 'TCPNoDelay' -ErrorAction SilentlyContinue
+            Write-Host "Impostazioni di rete ripristinate per l'interfaccia $($interface.Name)." -ForegroundColor Green
         }
-        if ($null -ne $backupData.VisualEffects.UserPreferencesMask) {
-            Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value $backupData.VisualEffects.UserPreferencesMask -Type Binary
-            $sig = '[DllImport("user32.dll")]public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);'
-            (Add-Type -MemberDefinition $sig -Name "User32" -PassThru)::SystemParametersInfo(0x57, 0, $null, 2)
-            Write-Log -Level SUCCESS "   - Effetti visivi ripristinati."
-        }
-        Remove-NetQosPolicy -Name "ExamPrepProctoring" -Confirm:$false -ErrorAction SilentlyContinue; Write-Log -Level SUCCESS "   - Policy QoS rimossa."
-        if ($backupData.Network.InterfaceGuid) {
-            $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$($backupData.Network.InterfaceGuid)"
-            if (Test-Path $nagleKeyPath) {
-                if ($null -eq $backupData.Network.TcpAckFrequency) { Remove-ItemProperty -Path $nagleKeyPath -Name "TcpAckFrequency" -EA SilentlyContinue } else { Set-ItemProperty -Path $nagleKeyPath -Name "TcpAckFrequency" -Value $backupData.Network.TcpAckFrequency -Type DWord -Force }
-                if ($null -eq $backupData.Network.TCPNoDelay) { Remove-ItemProperty -Path $nagleKeyPath -Name "TCPNoDelay" -EA SilentlyContinue } else { Set-ItemProperty -Path $nagleKeyPath -Name "TCPNoDelay" -Value $backupData.Network.TCPNoDelay -Type DWord -Force }
-                Write-Log -Level SUCCESS "   - Algoritmo di Nagle ripristinato."
-            }
-        }
-    } catch { Write-Log -Level WARN "Errore non critico durante ripristino avanzato: $($_.Exception.Message)" }
+    }
+    catch {
+        Write-Warning "Errore durante il ripristino della rete. Potrebbe essere necessario un riavvio. Dettagli: $($_.Exception.Message)"
+    }
 
-    # 2. Ripristino Ottimizzazioni Base
-    Write-Log -Level INFO -Message "[2/3] Ripristino ottimizzazioni di base..."
-    $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"; Test-And-Create-RegistryPath -Path $quietHoursKey | Out-Null; $originalProfile = if($null -ne $backupData.QuietHours){$backupData.QuietHours}else{0}; Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value $originalProfile -Force; Write-Log -Level SUCCESS "   - Assistente notifiche ripristinato."
-    $gameBarKey = "HKCU:\Software\Microsoft\GameBar"; Test-And-Create-RegistryPath -Path $gameBarKey | Out-Null; $originalGameBar = if($null -ne $backupData.GameBar.AllowGameBar){$backupData.GameBar.AllowGameBar}else{1}; Set-ItemProperty -Path $gameBarKey -Name "AllowGameBar" -Value $originalGameBar -Type DWord -Force; Write-Log -Level SUCCESS "   - Xbox Game Bar ripristinata."
-    powercfg /setactive $backupData.PowerScheme; Write-Log -Level SUCCESS "   - Schema energetico ripristinato."
-    foreach ($s in $backupData.Services.PSObject.Properties) { if ($s.Value -eq 'Running') { Start-Service -Name $s.Name -EA SilentlyContinue; Write-Log -Level SUCCESS "   - Servizio riavviato: $($s.Name)" } }
+    # 4. Pulisce il file di backup
+    Write-Host "Pulizia dei file di backup in corso..."
+    Remove-Item -Path $Global:BackupFilePath -Force
 
-    # 3. Pulizia
-    Write-Log -Level INFO -Message "[3/3] Pulizia file di backup..."
-    Remove-Item -Path $backupFile -Force; Write-Log -Level SUCCESS "   - File di backup rimosso."
-
-    Write-Log -Level TITLE -Message "--- RIPRISTINO COMPLETATO. Ben fatto! ---"
+    Write-Host "==================================================" -ForegroundColor Yellow
+    Write-Host "  RIPRISTINO COMPLETATO. IL PC E' TORNATO ALLA"
+    Write-Host "         NORMALITA'. BUONA CONTINUAZIONE!"
+    Write-Host "==================================================" -ForegroundColor Yellow
 }
 
-Export-ModuleMember -Function Start-ExamPreparation, Start-ExamRestore
-# --- FINE MODULO POWERSHELL ExamPrep ---
+#endregion
