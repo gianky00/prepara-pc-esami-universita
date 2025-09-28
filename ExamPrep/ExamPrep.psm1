@@ -243,7 +243,12 @@ function Start-ExamRestore {
             Write-Log -Level SUCCESS "   - Prestazioni GPU ripristinate."
         }
         if ($null -ne $backupData.VisualEffects.UserPreferencesMask) {
-            Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value $backupData.VisualEffects.UserPreferencesMask -Type Binary
+            # Correzione: Estrae l'array di byte dall'oggetto PSCustomObject che viene creato
+            # quando il JSON viene deserializzato, accedendo alla sua proprietà '.value' e forzando il cast a [byte[]].
+            $restoredMaskBytes = [byte[]]$backupData.VisualEffects.UserPreferencesMask.value
+            Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value $restoredMaskBytes -Type Binary
+
+            # Forza l'aggiornamento dell'interfaccia utente per applicare le modifiche visive
             $sig = '[DllImport("user32.dll")]public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);'
             (Add-Type -MemberDefinition $sig -Name "User32" -PassThru)::SystemParametersInfo(0x57, 0, $null, 2)
             Write-Log -Level SUCCESS "   - Effetti visivi ripristinati."
