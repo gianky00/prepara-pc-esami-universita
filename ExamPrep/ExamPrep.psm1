@@ -203,8 +203,11 @@ function Start-ExamPreparation {
     Write-Log -Level INFO -Message "[7/8] Applicazione ottimizzazioni di base..."
     $quietHoursKey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours"; Test-And-Create-RegistryPath -Path $quietHoursKey | Out-Null; Set-ItemProperty -Path $quietHoursKey -Name "QuietHoursProfile" -Value 2 -Force; Write-Log -Level SUCCESS "   - Notifiche disattivate (Solo Sveglie)."
     $gameBarKey = "HKCU:\Software\Microsoft\GameBar"; Test-And-Create-RegistryPath -Path $gameBarKey | Out-Null; Set-ItemProperty -Path $gameBarKey -Name "AllowGameBar" -Value 0 -Type DWord -Force; Write-Log -Level SUCCESS "   - Xbox Game Bar disabilitata."
-    try { powercfg /setactive "8c5e7fda-e8bf-4a96-9a8f-a307e2250669"; Write-Log -Level SUCCESS "   - Schema energetico impostato su 'Prestazioni elevate'." }
-    catch { Write-Log -Level WARN "   - Impossibile impostare lo schema 'Prestazioni elevate' (potrebbe non essere disponibile)." }
+    try {
+        powercfg /setactive "8c5e7fda-e8bf-4a96-9a8f-a307e2250669" 2>$null
+        Write-Log -Level SUCCESS "   - Schema energetico impostato su 'Prestazioni elevate'."
+    }
+    catch { Write-Log -Level WARN "   - Impossibile impostare lo schema 'Prestazioni elevate' (normale su alcuni portatili)." }
     foreach ($s in $Script:GlobalConfig.ServicesToManage) { if ((Get-Service $s -EA SilentlyContinue).Status -eq 'Running') { Stop-Service $s -Force; Write-Log -Level SUCCESS "   - Servizio interrotto: $s" } }
     Get-Item -Path "$env:TEMP\*", "$env:SystemRoot\Temp\*", "$env:SystemRoot\Prefetch\*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Write-Log -Level SUCCESS "   - File temporanei puliti."
 
