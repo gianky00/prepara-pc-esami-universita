@@ -79,7 +79,9 @@ function Request-AdminPrivileges {
         # Riavvia lo script corrente con il verbo 'RunAs' per elevare i privilegi.
         # Viene passata la modalità selezionata per mantenere il contesto.
         try {
-            Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Mode $Mode" -ErrorAction Stop
+            # Aggiunto -NoExit per mantenere aperta la finestra di PowerShell dopo l'esecuzione dello script.
+            $arguments = "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "-Mode", $Mode
+            Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -ErrorAction Stop
         }
         catch {
             Write-Error "Impossibile riavviare lo script con privilegi di amministratore. Errore: $($_.Exception.Message)"
