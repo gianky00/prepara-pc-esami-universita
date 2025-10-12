@@ -233,9 +233,8 @@ function Start-ExamPreparation {
             }
         }
 
-        $backupData | ConvertTo-Json -Depth 5 | Out-File -FilePath $backupFile -Encoding UTF8
-        Write-Log -Level SUCCESS -Message "   - Backup completato in '$backupFile'."
-    } catch { Write-Log -Level ERROR -Message "Errore durante il backup: $($_.Exception.Message)"; return }
+        Write-Log -Level SUCCESS -Message "   - Raccolta dati per il backup completata."
+    } catch { Write-Log -Level ERROR -Message "Errore durante la raccolta dei dati di backup: $($_.Exception.Message)"; return }
 
     # 2. Scoperta e Classificazione Processi
     Write-Log -Level INFO -Message "[2/10] Scansione per processi non configurati..."
@@ -246,7 +245,16 @@ function Start-ExamPreparation {
 
     # 3. Conferma Utente Finale
     if (-not $PSCmdlet.ShouldProcess("il sistema per la preparazione all'esame", "Sei sicuro di voler procedere?", "Conferma")) {
-        Write-Log -Level WARN -Message "Operazione annullata dall'utente."; Remove-Item -Path $backupFile -Force -ErrorAction SilentlyContinue; return
+        Write-Log -Level WARN -Message "Operazione annullata dall'utente."; return
+    }
+
+    # Scrive il file di backup solo dopo la conferma dell'utente
+    try {
+        $backupData | ConvertTo-Json -Depth 5 | Out-File -FilePath $backupFile -Encoding UTF8 -ErrorAction Stop
+        Write-Log -Level SUCCESS -Message "   - File di backup creato con successo in '$backupFile'."
+    } catch {
+        Write-Log -Level ERROR -Message "Impossibile creare il file di backup. Operazione interrotta. Errore: $($_.Exception.Message)"
+        return
     }
 
     # 4. Terminazione Processi
