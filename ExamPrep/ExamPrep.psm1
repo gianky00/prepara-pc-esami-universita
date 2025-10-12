@@ -47,8 +47,12 @@ function Get-DiscoverableProcesses {
     $windowsPath = $env:SystemRoot
     Write-Log -Level VERBOSE -Message "Avvio scansione processi utente..."
     try {
+        # Aggiunge i nomi dei file degli eseguibili dei proctor alla lista dei processi conosciuti
+        $proctorExecutables = $Script:GlobalConfig.ProctoringAppPaths | ForEach-Object { [System.IO.Path]::GetFileName($_) }
+        $allKnown = $KnownProcesses + $proctorExecutables
+
         $processes = Get-Process | Where-Object { $_.MainWindowTitle -and $_.Path -and -not $_.Path.StartsWith($windowsPath) } | Select-Object -ExpandProperty ProcessName -Unique
-        $knownProcessesLower = $KnownProcesses | ForEach-Object { $_.ToLower() }
+        $knownProcessesLower = $allKnown | ForEach-Object { $_.ToLower() }
         $discovered = $processes | Where-Object { ($_.ToLower() + ".exe") -notin $knownProcessesLower }
         return $discovered
     } catch { Write-Log -Level WARN -Message "Impossibile scansionare i processi. Errore: $($_.Exception.Message)"; return @() }
@@ -157,8 +161,9 @@ function Start-ExamPreparation {
         # Backup dello stato dei servizi (Base e Avanzato)
         $servicesToBackup = [System.Collections.Generic.List[string]]@($Script:GlobalConfig.ServicesToManage)
         if ($Script:GlobalConfig.AdvancedServiceManagement.Enabled) {
-            # In modalità avanzata, scopri tutti i servizi non-Microsoft
-            $nonMicrosoftServices = Get-CimInstance -ClassName Win32_Service | Where-Object { $_.PathName -and -not $_.PathName.StartsWith($env:SystemRoot) }
+        # In modalità avanzata, scopri tutti i servizi non-Microsoft, escludendo quelli da ignorare
+        $servicesToIgnore = $Script:GlobalConfig.ServicesToIgnore
+        $nonMicrosoftServices = Get-CimInstance -ClassName Win32_Service | Where-Object { $_.PathName -and -not $_.PathName.StartsWith($env:SystemRoot) -and $_.Name -notin $servicesToIgnore }
             foreach($s in $nonMicrosoftServices) { $servicesToBackup.Add($s.Name) }
         }
 
@@ -175,26 +180,33 @@ function Start-ExamPreparation {
 
         $backupData.VisualEffects.UserPreferencesMask = Get-ItemPropertyValue -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -ErrorAction SilentlyContinue
 
-        # Trova il percorso dell'eseguibile del proctor, anche se non è in esecuzione
-        $proctorProc = Get-Process -Name $Script:GlobalConfig.ProctoringAppName.Replace(".exe", "") -ErrorAction SilentlyContinue
+    # Trova il percorso dell'eseguibile del proctor, iterando sui percorsi specificati
         $proctorExePath = $null
+    $proctorAppName = $null
+    foreach ($path in $Script:GlobalConfig.ProctoringAppPaths) {
+        if (Test-Path $path) {
+            $proctorExePath = $path
+            $proctorAppName = [System.IO.Path]::GetFileName($path)
+            Write-Log -Level VERBOSE "Trovato eseguibile proctor valido: $proctorExePath"
+            break
+        }
+    }
+
+    $proctorProc = if ($proctorAppName) { Get-Process -Name $proctorAppName.Replace(".exe", "") -ErrorAction SilentlyContinue } else { $null }
         if ($proctorProc) {
-            $proctorExePath = $proctorProc.Path
             $backupData.ProctorProcess.Priority = $proctorProc.PriorityClass
-            Write-Log -Level VERBOSE "Applicazione proctor trovata in esecuzione. Path: $proctorExePath"
-        } else {
-            Write-Log -Level VERBOSE "Applicazione proctor non in esecuzione. Avvio ricerca dell'eseguibile..."
-            $proctorExePath = Find-ExecutablePath -ExecutableName $Script:GlobalConfig.ProctoringAppName
+        Write-Log -Level VERBOSE "Applicazione proctor '$proctorAppName' trovata in esecuzione."
         }
 
         # Se abbiamo trovato il percorso, salvalo ed esegui il backup delle impostazioni associate
         if ($proctorExePath) {
             $backupData.ProctorProcess.Path = $proctorExePath
+            $backupData.ProctorProcess.AppName = $proctorAppName
             $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"
             $backupData.ProctorProcess.GpuPreference = Get-ItemPropertyValue -Path $gpuPrefKey -Name $proctorExePath -ErrorAction SilentlyContinue
             Write-Log -Level VERBOSE "Percorso eseguibile del proctor ('$proctorExePath') salvato per le ottimizzazioni."
         } else {
-            Write-Log -Level WARN "Impossibile trovare l'eseguibile dell'applicazione proctor. Le ottimizzazioni specifiche (GPU, QoS) non verranno applicate."
+            Write-Log -Level WARN "Impossibile trovare l'eseguibile di alcuna applicazione proctor. Le ottimizzazioni specifiche (GPU, QoS) non verranno applicate."
         }
 
         # CORREZIONE: Seleziona solo la prima configurazione di rete attiva per evitare errori
@@ -227,7 +239,7 @@ function Start-ExamPreparation {
 
     # 2. Scoperta e Classificazione Processi
     Write-Log -Level INFO -Message "[2/10] Scansione per processi non configurati..."
-    $knownProcesses = $Script:GlobalConfig.ProcessesToKill + $Script:GlobalConfig.AllowedApplications + @($Script:GlobalConfig.ProctoringAppName)
+    $knownProcesses = $Script:GlobalConfig.ProcessesToKill + $Script:GlobalConfig.AllowedApplications
     $discovered = Get-DiscoverableProcesses -KnownProcesses $knownProcesses
     $sessionDecisions = if ($discovered.Count -gt 0) { Invoke-ProcessClassifier -DiscoveredProcesses $discovered -ConfigPath $ConfigPath }
     else { Write-Log -Level VERBOSE -Message "Nessun nuovo processo da classificare."; @{ Kill = @(); Allow = @() } }
@@ -292,7 +304,7 @@ function Start-ExamPreparation {
         if ($proctorProc) {
             # Il processo è in esecuzione, quindi è possibile impostare la priorità della CPU.
             $proctorProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High
-            Write-Log -Level SUCCESS "   - Priorità CPU di '$($Script:GlobalConfig.ProctoringAppName)' impostata su 'Alta'."
+            Write-Log -Level SUCCESS "   - Priorità CPU di '$($backupData.ProctorProcess.AppName)' impostata su 'Alta'."
         }
         else {
             # Il processo non è in esecuzione, logga un avviso informativo.
@@ -303,7 +315,7 @@ function Start-ExamPreparation {
         # Applica ottimizzazione GPU persistente usando il path dell'eseguibile trovato
         if ($backupData.ProctorProcess.Path) {
             $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"; Test-And-Create-RegistryPath -Path $gpuPrefKey | Out-Null
-            Set-ItemProperty -Path $gpuPrefKey -Name $backupData.ProctorProcess.Path -Value "GpuPreference=2;"; Write-Log -Level SUCCESS "   - Prestazioni GPU per '$($Script:GlobalConfig.ProctoringAppName)' impostate su 'Elevate' (persistente)."
+            Set-ItemProperty -Path $gpuPrefKey -Name $backupData.ProctorProcess.Path -Value "GpuPreference=2;"; Write-Log -Level SUCCESS "   - Prestazioni GPU per '$($backupData.ProctorProcess.AppName)' impostate su 'Elevate' (persistente)."
         }
 
         $perfMask = [byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00); Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value $perfMask -Type Binary
@@ -315,7 +327,7 @@ function Start-ExamPreparation {
         Write-Log -Level INFO -Message "[8/10] Applicazione ottimizzazioni Rete avanzate..."
         # Applica policy QoS persistente usando il path dell'eseguibile trovato
         if ($backupData.ProctorProcess.Path) {
-            try { New-NetQosPolicy -Name "ExamPrepProctoring" -AppPathNameMatchCondition $backupData.ProctorProcess.Path -PriorityValue8021Action 7 -ErrorAction Stop; Write-Log -Level SUCCESS "   - Policy QoS creata per '$($Script:GlobalConfig.ProctoringAppName)' (persistente)." }
+            try { New-NetQosPolicy -Name "ExamPrepProctoring" -AppPathNameMatchCondition $backupData.ProctorProcess.Path -PriorityValue8021Action 7 -ErrorAction Stop; Write-Log -Level SUCCESS "   - Policy QoS creata per '$($backupData.ProctorProcess.AppName)' (persistente)." }
             catch { Write-Log -Level WARN "   - Impossibile creare policy QoS." }
         }
         if ($backupData.Network.InterfaceGuid -and $Script:GlobalConfig.AdvancedOptimizations.DisableNagleAlgorithm) {
@@ -370,8 +382,13 @@ function Start-ExamRestore {
     Write-Log -Level INFO -Message "[1/3] Ripristino ottimizzazioni avanzate..."
     try {
         $Script:GlobalConfig = Get-ExamPrepConfig -ConfigPath $ConfigPath
-        $proctorProc = Get-Process -Name $Script:GlobalConfig.ProctoringAppName.Replace(".exe", "") -ErrorAction SilentlyContinue
-        if ($proctorProc -and $backupData.ProctorProcess.Priority) { $proctorProc.PriorityClass = $backupData.ProctorProcess.Priority; Write-Log -Level SUCCESS "   - Priorità CPU ripristinata." }
+        if ($backupData.ProctorProcess.AppName) {
+            $proctorProc = Get-Process -Name $backupData.ProctorProcess.AppName.Replace(".exe", "") -ErrorAction SilentlyContinue
+            if ($proctorProc -and $backupData.ProctorProcess.Priority) {
+                $proctorProc.PriorityClass = $backupData.ProctorProcess.Priority
+                Write-Log -Level SUCCESS "   - Priorità CPU di '$($backupData.ProctorProcess.AppName)' ripristinata."
+            }
+        }
         if ($backupData.ProctorProcess.Path) {
             $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"
             if ($null -eq $backupData.ProctorProcess.GpuPreference) { Remove-ItemProperty -Path $gpuPrefKey -Name $backupData.ProctorProcess.Path -EA SilentlyContinue }

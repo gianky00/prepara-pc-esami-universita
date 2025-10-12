@@ -19,7 +19,8 @@
   "AllowedApplications": [
     "chrome.exe",
     "Ecampus proctor.exe",
-    "SEE.exe"
+    "SEE.exe",
+    "pwsh.exe"
   ],
   "ServicesToManage": [
     "SysMain",
@@ -27,7 +28,15 @@
     "BITS",
     "DoSvc"
   ],
-  "ProctoringAppName": "Ecampus proctor.exe",
+  "ServicesToIgnore": [
+    "MDCortex",
+    "WdNisSvc",
+    "WinDefend"
+  ],
+  "ProctoringAppPaths": [
+    "C:\\Users\\gianc\\AppData\\Local\\Programs\\ecampus-proctor\\EcampusProctor.exe",
+    "C:\\Program Files\\Doxinet\\SEE\\SEE.exe"
+  ],
   "EmptyRecycleBin": true,
   "AdvancedOptimizations": {
     "EnablePCPerformance": true,
