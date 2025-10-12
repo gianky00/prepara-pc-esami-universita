@@ -163,7 +163,13 @@ function Start-ExamPreparation {
         if ($Script:GlobalConfig.AdvancedServiceManagement.Enabled) {
         # In modalità avanzata, scopri tutti i servizi non-Microsoft, escludendo quelli da ignorare
         $servicesToIgnore = $Script:GlobalConfig.ServicesToIgnore
-        $nonMicrosoftServices = Get-CimInstance -ClassName Win32_Service | Where-Object { $_.PathName -and -not $_.PathName.StartsWith($env:SystemRoot) -and $_.Name -notin $servicesToIgnore }
+        # Aggiunto filtro regex per ignorare servizi con nomi corrotti/non standard
+        $nonMicrosoftServices = Get-CimInstance -ClassName Win32_Service | Where-Object {
+            $_.PathName -and
+            -not $_.PathName.StartsWith($env:SystemRoot) -and
+            $_.Name -notin $servicesToIgnore -and
+            $_.Name -match '^[a-zA-Z0-9_ -]+$'
+        }
             foreach($s in $nonMicrosoftServices) { $servicesToBackup.Add($s.Name) }
         }
 
