@@ -77,5 +77,12 @@ switch ($Mode) {
     }
 }
 
-Write-Host "Operazione '$Mode' completata. Premere un tasto per uscire..."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+Write-Host "Operazione '$Mode' completata."
+if ($Host.UI.RawUI.KeyAvailable -or $Host.Name -eq 'ConsoleHost') {
+    Write-Host "Premere un tasto per uscire..."
+    try {
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    } catch {
+        # Ignora errori se non è possibile leggere l'input (es. redirect o non-interattivo)
+    }
+}

@@ -1,0 +1,214 @@
+﻿=================================================================
+                REPORT DI SISTEMA - 12/28/2025 00:32:17
+=================================================================
+
+
+--- INFORMAZIONI DI SISTEMA (SYSTEMINFO) ---
+
+
+Nome host:                               GIANKY-PC
+Nome SO:                                 Microsoft Windows 11 Home
+Versione SO:                             10.0.26200 N/D build 26200
+Produttore SO:                           Microsoft Corporation
+Configurazione SO:                       Workstation autonoma
+Tipo build SO:                           Multiprocessor Free
+Proprietario registrato:                 giancarlo.allegretti@outlook.com
+Organizzazione registrata:               HP
+Numero di serie:                         00342-22493-15463-AAOEM
+Data di installazione originale:         14/09/2025, 15:12:11
+Tempo di avvio sistema:                  21/12/2025, 21:00:49
+Produttore sistema:                      HP
+Modello sistema:                         HP Laptop 17-cp3xxx
+Tipo sistema:                            x64-based PC
+Processore:                              1 processore(i) installati.
+                                         [01]: AMD64 Family 25 Model 80 Stepping 0 AuthenticAMD ~2000 Mhz
+Versione BIOS:                           Insyde F.11, 08/05/2025
+Directory Windows:                       C:\windows
+Directory di sistema:                    C:\windows\system32
+Dispositivo di avvio:                    \Device\HarddiskVolume1
+Impostazioni locali sistema:             it;Italiano (Italia)
+Impostazioni locali di input:            it;Italiano (Italia)
+Fuso orario:                             (UTC+01:00) Amsterdam, Berlino, Berna, Roma, Stoccolma, Vienna
+Memoria fisica totale:                   15.723 MB
+Memoria fisica disponibile:              8.164 MB
+Memoria virtuale: dimensione massima:    22.379 MB
+Memoria virtuale: disponibile:           10.604 MB
+Memoria virtuale: in uso:                11.775 MB
+Posizioni file di paging:                C:\pagefile.sys
+Dominio:                                 WORKGROUP
+Server di accesso:                       \\GIANKY-PC
+Aggiornamenti rapidi:                    6 Aggiornamenti rapidi installati.
+                                         [01]: KB5067931
+                                         [02]: KB5050575
+                                         [03]: KB5054156
+                                         [04]: KB5065847
+                                         [05]: KB5072033
+                                         [06]: KB5071142
+Schede di rete:                          2 NIC installate.
+                                         [01]: Bluetooth Device (Personal Area Network)
+                                               Nome connessione: Connessione di rete Bluetooth
+                                               Stato:            Supporto disconnesso
+                                         [02]: Realtek RTL8852BE-VS WiFi 6 802.11ax PCIe Adapter
+                                               Nome connessione: Wi-Fi
+                                               DHCP abilitato:   Sì
+                                               Server DHCP:      192.168.1.1
+                                               Indirizzi IP
+                                               [01]: 192.168.1.163
+                                               [02]: fe80::44fa:ee1b:3e32:c0c
+                                               [03]: fd8e:af9a:c093:8:bc28:1bc:70cf:db50
+                                               [04]: fd8e:af9a:c093:8:346e:4ad3:be0b:e3ea
+                                               [05]: 2a0d:3341:b8c5:5f08:3dd9:99d5:4bd2:abfb
+                                               [06]: fd8e:af9a:c093:8:fa3b:4261:377d:2b52
+                                               [07]: 2a0d:3341:b8c5:5f08:f7df:57b5:8f94:c03f
+Sicurezza basata sulla virtualizzazione: Stato: In esecuzione
+                                         Proprietà di sicurezza obbligatorie:
+                                               Supporto virtualizzazione di base
+                                         Proprietà di sicurezza disponibili:
+                                               Supporto virtualizzazione di base
+                                               Avvio protetto
+                                               Protezione DMA
+                                               Codice UEFI di sola lettura
+                                               SMM Security Mitigations 1.0
+                                               Controllo dell'esecuzione basato su modalità
+                                         Services Configured:
+                                               Integrità del codice applicata da hypervisor
+                                         Services Running:
+                                               Integrità del codice applicata da hypervisor
+                                         App Control for Business policy: Imposto
+                                         App Control for Business user mode policy: Disattivato
+                                         Funzionalità di sicurezza abilitate:
+Requisiti Hyper-V:                       Rilevato hypervisor. Le funzionalità necessarie per Hyper-V non verranno visualizzate.
+
+
+
+--- INFORMAZIONI PROCESSORE (Get-CimInstance) ---
+
+
+
+Name                      : AMD Ryzen 7 7730U with Radeon Graphics         
+NumberOfCores             : 8
+NumberOfLogicalProcessors : 16
+MaxClockSpeed             : 2000
+
+
+
+
+
+
+--- INFORMAZIONI SCHEDA VIDEO (Get-CimInstance) ---
+
+
+
+Name          : AMD Radeon (TM) Graphics
+DriverVersion : 31.0.21914.8004
+AdapterRAM    : 536870912
+
+
+
+
+
+
+--- INFORMAZIONI MEMORIA RAM (Get-CimInstance) ---
+
+
+BankLabel    Capacity(GB) MemoryType Speed
+---------    ------------ ---------- -----
+P0 CHANNEL A            8          0  3200
+P0 CHANNEL B            8          0  3200
+
+
+
+
+
+--- INFORMAZIONI DISCHI FISICI (Get-CimInstance) ---
+
+
+Model                      Size(GB) InterfaceType
+-----                      -------- -------------
+SAMSUNG MZVL8512HELU-00BH1      477 SCSI         
+
+
+
+
+
+--- CONFIGURAZIONE DI RETE (IPCONFIG) ---
+
+
+Configurazione IP di Windows
+
+   Nome host . . . . . . . . . . . . . . : gianky-PC
+   Suffisso DNS primario . . . . . . . . : 
+   Tipo nodo . . . . . . . . . . . . . . : Ibrido
+   Routing IP abilitato. . . . . . . . . : No
+   Proxy WINS abilitato . . . . . . . .  : No
+   Elenco di ricerca suffissi DNS. . . . : lan
+
+Scheda LAN wireless Connessione alla rete locale (LAN)* 1:
+
+   Stato supporto. . . . . . . . . . . . : Supporto disconnesso
+   Suffisso DNS specifico per connessione: 
+   Descrizione . . . . . . . . . . . . . : Microsoft Wi-Fi Direct Virtual Adapter
+   Indirizzo fisico. . . . . . . . . . . : 3A-8D-3D-8F-34-5E
+   DHCP abilitato. . . . . . . . . . . . : Sì
+   Configurazione automatica abilitata   : Sì
+
+Scheda LAN wireless Connessione alla rete locale (LAN)* 2:
+
+   Stato supporto. . . . . . . . . . . . : Supporto disconnesso
+   Suffisso DNS specifico per connessione: 
+   Descrizione . . . . . . . . . . . . . : Microsoft Wi-Fi Direct Virtual Adapter #2
+   Indirizzo fisico. . . . . . . . . . . : 3E-8D-3D-8F-34-5E
+   DHCP abilitato. . . . . . . . . . . . : Sì
+   Configurazione automatica abilitata   : Sì
+
+Scheda LAN wireless Wi-Fi:
+
+   Suffisso DNS specifico per connessione: lan
+   Descrizione . . . . . . . . . . . . . : Realtek RTL8852BE-VS WiFi 6 802.11ax PCIe Adapter
+   Indirizzo fisico. . . . . . . . . . . : 38-8D-3D-8F-34-5E
+   DHCP abilitato. . . . . . . . . . . . : Sì
+   Configurazione automatica abilitata   : Sì
+   Indirizzo IPv6 . . . . . . . . . . . . . . . . . : 2a0d:3341:b8c5:5f08:f7df:57b5:8f94:c03f(Preferenziale) 
+   Indirizzo IPv6 . . . . . . . . . . . . . . . . . : fd8e:af9a:c093:8:fa3b:4261:377d:2b52(Preferenziale) 
+   Indirizzo IPv6 temporaneo. . . . . . . . . . . . : 2a0d:3341:b8c5:5f08:3dd9:99d5:4bd2:abfb(Preferenziale) 
+   Indirizzo IPv6 temporaneo. . . . . . . . . . . . : fd8e:af9a:c093:8:346e:4ad3:be0b:e3ea(Obsoleto) 
+   Indirizzo IPv6 temporaneo. . . . . . . . . . . . : fd8e:af9a:c093:8:bc28:1bc:70cf:db50(Obsoleto) 
+   Indirizzo IPv6 locale rispetto al collegamento . : fe80::44fa:ee1b:3e32:c0c%11(Preferenziale) 
+   Indirizzo IPv4. . . . . . . . . . . . : 192.168.1.163(Preferenziale) 
+   Subnet mask . . . . . . . . . . . . . : 255.255.255.0
+   Lease ottenuto. . . . . . . . . . . . : sabato 27 dicembre 2025 17:41:40
+   Scadenza lease . . . . . . . . . . .  : domenica 28 dicembre 2025 01:22:45
+   Gateway predefinito . . . . . . . . . : fe80::7624:9fff:fee2:d43%11
+                                           192.168.1.1
+   Server DHCP . . . . . . . . . . . . . : 192.168.1.1
+   IAID DHCPv6 . . . . . . . . . . . : 121146685
+   DUID Client DHCPv6. . . . . . . . : 00-01-00-01-2F-79-50-E5-9C-EB-E8-57-FC-5E
+   Server DNS . . . . . . . . . . . . .  : fd8e:af9a:c093:8::1
+                                           192.168.1.1
+                                           fd8e:af9a:c093:8::1
+   NetBIOS su TCP/IP . . . . . . . . . . : Attivato
+
+Scheda Ethernet Connessione di rete Bluetooth:
+
+   Stato supporto. . . . . . . . . . . . : Supporto disconnesso
+   Suffisso DNS specifico per connessione: 
+   Descrizione . . . . . . . . . . . . . : Bluetooth Device (Personal Area Network)
+   Indirizzo fisico. . . . . . . . . . . : 38-8D-3D-8F-34-5F
+   DHCP abilitato. . . . . . . . . . . . : Sì
+   Configurazione automatica abilitata   : Sì
+
+
+
+--- PIANI DI RISPARMIO ENERGETICO (POWERCFG) ---
+
+
+Combinazioni risparmio energia esistenti (* attive)
+-----------------------------------
+GUID combinazione risparmio energia: 381b4222-f694-41f0-9685-ff5bb260df2e  (Bilanciato)
+GUID combinazione risparmio energia: 48684d4a-8524-4093-8a63-ea7132b79c1c  (Consigliati da HP) *
+
+
+
+=================================================================
+                     FINE DEL REPORT
+=================================================================
