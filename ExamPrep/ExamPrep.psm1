@@ -104,6 +104,18 @@ function Find-ExecutablePath {
     return $null
 }
 
+function Test-PendingReboot {
+    $rebootPending = $false
+    # Controllo Component Based Servicing (CBS)
+    if (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -ErrorAction SilentlyContinue) { $rebootPending = $true }
+    # Controllo Windows Update
+    if (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -ErrorAction SilentlyContinue) { $rebootPending = $true }
+    # Controllo PendingFileRenameOperations
+    if (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Name "PendingFileRenameOperations" -ErrorAction SilentlyContinue) { $rebootPending = $true }
+    
+    return $rebootPending
+}
+
 function Invoke-ProcessClassifier {
     param($DiscoveredProcesses, $ConfigPath)
     $sessionKillList = [System.Collections.Generic.List[string]]@()
@@ -143,8 +155,28 @@ function Start-ExamPreparation {
     )
     $Script:GlobalLogPath = $LogPath
     Write-Log -Level TITLE -Message "--- MODALITÀ PREPARAZIONE ESAME v11.0 (Élite Stabile) ---"
-    try { $Script:GlobalConfig = Get-ExamPrepConfig -ConfigPath $ConfigPath }
+    try { 
+        $Script:GlobalConfig = Get-ExamPrepConfig -ConfigPath $ConfigPath 
+        Test-ExamPrepConfig -Config $Script:GlobalConfig
+    }
     catch { Write-Log -Level ERROR -Message $_.Exception.Message; return }
+
+    if (Test-PendingReboot) {
+        Write-Log -Level WARN "ATTENZIONE: Rilevato un riavvio di sistema in sospeso!"
+        Write-Log -Level WARN "Si consiglia vivamente di riavviare il PC prima di eseguire la preparazione per evitare instabilità."
+        # Non blocchiamo l'esecuzione, ma l'avviso è chiaro nel log e a schermo.
+    }
+
+    # 0. Punto di Ripristino di Sistema (Safety Net)
+    Write-Log -Level INFO -Message "[0/10] Creazione Punto di Ripristino di Windows (Safety Net)..."
+    try {
+        # Checkpoint-Computer richiede privilegi elevati (già garantiti dal wrapper)
+        Checkpoint-Computer -Description "ExamPrep Pre-Esame" -RestorePointType "MODIFY_SETTINGS" -ErrorAction Stop
+        Write-Log -Level SUCCESS "   - Punto di ripristino creato con successo."
+    } catch {
+        Write-Log -Level WARN "   - Impossibile creare il Punto di Ripristino automatico: $($_.Exception.Message)"
+        Write-Log -Level WARN "   - Il backup JSON interno verrà comunque utilizzato come metodo di ripristino primario."
+    }
 
     # 1. Backup
     $backupDir = Join-Path $env:LOCALAPPDATA "ExamPrep"
@@ -215,17 +247,29 @@ function Start-ExamPreparation {
             Write-Log -Level WARN "Impossibile trovare l'eseguibile di alcuna applicazione proctor. Le ottimizzazioni specifiche (GPU, QoS) non verranno applicate."
         }
 
-        # CORREZIONE: Seleziona solo la prima configurazione di rete attiva per evitare errori
-        # in sistemi con più adattatori di rete (es. VPN, VirtualBox).
-        $ipconfig = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up'} | Select-Object -First 1
+        # CORREZIONE: Miglioramento rilevamento rete. Priorità a schede fisiche non virtuali.
+        $ipconfig = Get-NetIPConfiguration | Where-Object { 
+            $_.IPv4DefaultGateway -ne $null -and 
+            $_.NetAdapter.Status -eq 'Up' -and
+            $_.NetAdapter.InterfaceDescription -notmatch "Virtual|VMware|Hyper-V|VPN|Pseudo"
+        } | Select-Object -First 1
+        
+        # Fallback se non trova nulla di "fisico"
+        if (-not $ipconfig) {
+             $ipconfig = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up'} | Select-Object -First 1
+        }
+
         if ($ipconfig) {
             $interfaceGuid = $ipconfig.NetAdapter.InterfaceGuid; $backupData.Network.InterfaceGuid = $interfaceGuid
+            Write-Log -Level VERBOSE "Interfaccia di rete primaria rilevata: $($ipconfig.NetAdapter.InterfaceDescription)"
             $nagleKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$interfaceGuid"
             if (Test-Path $nagleKeyPath) {
                 $regKey = Get-Item -Path $nagleKeyPath
                 if ($null -ne $regKey.GetValue("TcpAckFrequency", $null)) { $backupData.Network.TcpAckFrequency = $regKey.GetValue("TcpAckFrequency") }
                 if ($null -ne $regKey.GetValue("TCPNoDelay", $null)) { $backupData.Network.TCPNoDelay = $regKey.GetValue("TCPNoDelay") }
             }
+        } else {
+            Write-Log -Level WARN "Impossibile rilevare un'interfaccia di rete attiva con gateway predefinito."
         }
 
         $backupData.QuietHours = Get-ItemPropertyValue -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\QuietHours" -Name "QuietHoursProfile" -ErrorAction SilentlyContinue
@@ -458,8 +502,23 @@ function Start-ExamRestore {
 
                 # Se il servizio era in esecuzione, prova a riavviarlo
                 if ($serviceInfo.State -eq 'Running') {
-                    Start-Service -Name $serviceInfo.Name -ErrorAction SilentlyContinue # SilentlyContinue qui è accettabile
-                    Write-Log -Level SUCCESS "   - Servizio '$($serviceInfo.Name)' riavviato."
+                    $retryCount = 0
+                    $maxRetries = 3
+                    $started = $false
+                    while (-not $started -and $retryCount -lt $maxRetries) {
+                        try {
+                            Start-Service -Name $serviceInfo.Name -ErrorAction Stop
+                            $started = $true
+                            Write-Log -Level SUCCESS "   - Servizio '$($serviceInfo.Name)' riavviato."
+                        } catch {
+                            $retryCount++
+                            Write-Log -Level WARN "   - Tentativo $($retryCount) / $($maxRetries): Impossibile avviare '$($serviceInfo.Name)'. Riprovo tra 2 secondi..."
+                            Start-Sleep -Seconds 2
+                        }
+                    }
+                    if (-not $started) {
+                        Write-Log -Level ERROR "   - FALLITO riavvio del servizio '$($serviceInfo.Name)' dopo $maxRetries tentativi."
+                    }
                 }
             } catch {
                 Write-Log -Level WARN "   - Impossibile ripristinare completamente il servizio '$($serviceInfo.Name)'. Errore: $($_.Exception.Message)"

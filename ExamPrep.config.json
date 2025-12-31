@@ -26,7 +26,8 @@
     "SysMain",
     "WSearch",
     "BITS",
-    "DoSvc"
+    "DoSvc",
+    "wuauserv"
   ],
   "ServicesToIgnore": [
     "MDCortex",
