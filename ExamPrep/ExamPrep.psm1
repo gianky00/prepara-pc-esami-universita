@@ -218,28 +218,35 @@ function Start-ExamPreparation {
 
         $backupData.VisualEffects.UserPreferencesMask = Get-ItemPropertyValue -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -ErrorAction SilentlyContinue
 
-    # Trova il percorso dell'eseguibile del proctor, iterando sui percorsi specificati
+        # Trova il percorso dell'eseguibile del proctor
         $proctorExePath = $null
-    $proctorAppName = $null
-    foreach ($path in $Script:GlobalConfig.ProctoringAppPaths) {
-        if (Test-Path $path) {
-            $proctorExePath = $path
-            $proctorAppName = [System.IO.Path]::GetFileName($path)
-            Write-Log -Level VERBOSE "Trovato eseguibile proctor valido: $proctorExePath"
-            break
+        $proctorAppName = $null
+        foreach ($path in $Script:GlobalConfig.ProctoringAppPaths) {
+            if (Test-Path $path) {
+                $proctorExePath = $path
+                $proctorAppName = [System.IO.Path]::GetFileName($path)
+                Write-Log -Level VERBOSE "Trovato eseguibile proctor valido: $proctorExePath"
+                break
+            }
         }
-    }
 
-    $proctorProc = if ($proctorAppName) { Get-Process -Name $proctorAppName.Replace(".exe", "") -ErrorAction SilentlyContinue } else { $null }
+        $proctorProc = if ($proctorAppName) { Get-Process -Name $proctorAppName.Replace(".exe", "") -ErrorAction SilentlyContinue } else { $null }
         if ($proctorProc) {
             $backupData.ProctorProcess.Priority = $proctorProc.PriorityClass
-        Write-Log -Level VERBOSE "Applicazione proctor '$proctorAppName' trovata in esecuzione."
+            Write-Log -Level VERBOSE "Applicazione proctor '$proctorAppName' trovata in esecuzione. Path: $proctorExePath"
+        } elseif ($Script:GlobalConfig.ProctoringAppPath -and (Test-Path $Script:GlobalConfig.ProctoringAppPath)) {
+            $proctorExePath = $Script:GlobalConfig.ProctoringAppPath
+            Write-Log -Level VERBOSE "Utilizzo percorso proctor statico configurato: $proctorExePath"
+        } else {
+            Write-Log -Level VERBOSE "Applicazione proctor non in esecuzione e nessun percorso valido in config. Avvio ricerca limitata..."
+            # Ricerca limitata solo alla cartella dell'utente se il percorso statico fallisce
+            $proctorExePath = Find-ExecutablePath -ExecutableName $Script:GlobalConfig.ProctoringAppName
         }
 
         # Se abbiamo trovato il percorso, salvalo ed esegui il backup delle impostazioni associate
         if ($proctorExePath) {
             $backupData.ProctorProcess.Path = $proctorExePath
-            $backupData.ProctorProcess.AppName = $proctorAppName
+            $backupData.ProctorProcess.AppName = $proctorAppName ?: $Script:GlobalConfig.ProctoringAppName
             $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"
             $backupData.ProctorProcess.GpuPreference = Get-ItemPropertyValue -Path $gpuPrefKey -Name $proctorExePath -ErrorAction SilentlyContinue
             Write-Log -Level VERBOSE "Percorso eseguibile del proctor ('$proctorExePath') salvato per le ottimizzazioni."
@@ -348,10 +355,18 @@ function Start-ExamPreparation {
         if ($servicesToDisable) {
             Write-Log -Level INFO "   - Modalità avanzata: disabilitazione di $($servicesToDisable.Count) servizi di terze parti."
             foreach ($service in $servicesToDisable) {
+                # Salta silenziosamente i servizi di sicurezza noti che danno accesso negato
+                if ($service.Name -match "AVP|Kaspersky|WinDefend|WdNisSvc|MDCoreSvc|Sense") {
+                    Write-Log -Level VERBOSE "     - Servizio di sicurezza saltato (protetto): $($service.Name)"
+                    continue
+                }
                 try {
                     Set-Service -Name $service.Name -StartupType Disabled -ErrorAction Stop
                     Write-Log -Level SUCCESS "     - Servizio disabilitato (avvio impedito): $($service.Name)"
-                } catch { Write-Log -Level WARN "     - Impossibile disabilitare il servizio '$($service.Name)'. Errore: $($_.Exception.Message)" }
+                } catch { 
+                    # Se fallisce comunque per altri motivi, logga solo in verbose per non sporcare il log principale
+                    Write-Log -Level VERBOSE "     - Impossibile disabilitare il servizio '$($service.Name)'. Errore: $($_.Exception.Message)" 
+                }
             }
         }
     }
@@ -385,7 +400,11 @@ function Start-ExamPreparation {
         Write-Log -Level INFO -Message "[8/10] Applicazione ottimizzazioni Rete avanzate..."
         # Applica policy QoS persistente usando il path dell'eseguibile trovato
         if ($backupData.ProctorProcess.Path) {
-            try { New-NetQosPolicy -Name "ExamPrepProctoring" -AppPathNameMatchCondition $backupData.ProctorProcess.Path -PriorityValue8021Action 7 -ErrorAction Stop; Write-Log -Level SUCCESS "   - Policy QoS creata per '$($backupData.ProctorProcess.AppName)' (persistente)." }
+            try { 
+                Remove-NetQosPolicy -Name "ExamPrepProctoring" -Confirm:$false -ErrorAction SilentlyContinue
+                New-NetQosPolicy -Name "ExamPrepProctoring" -AppPathNameMatchCondition $backupData.ProctorProcess.Path -PriorityValue8021Action 7 -ErrorAction Stop
+                Write-Log -Level SUCCESS "   - Policy QoS creata per '$($backupData.ProctorProcess.AppName)' (persistente)." 
+            }
             catch { Write-Log -Level WARN "   - Impossibile creare policy QoS." }
         }
         if ($backupData.Network.InterfaceGuid -and $Script:GlobalConfig.AdvancedOptimizations.DisableNagleAlgorithm) {

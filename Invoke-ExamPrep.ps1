@@ -16,8 +16,9 @@ param(
 function Ensure-Admin {
     if (-not ([System.Security.Principal.WindowsPrincipal][System.Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
         Write-Warning "Richiesta di privilegi di amministratore per eseguire la modalità '$Mode'..."
+        $psExe = (Get-Process -Id $PID).Path
         try {
-            Start-Process pwsh -Verb RunAs -ArgumentList "-NoProfile -File `"$PSCommandPath`" -Mode $Mode" -ErrorAction Stop
+            Start-Process $psExe -Verb RunAs -ArgumentList "-NoProfile -File `"$PSCommandPath`" -Mode $Mode" -ErrorAction Stop
         }
         catch {
             Write-Error "Impossibile elevare i privilegi. Errore: $($_.Exception.Message)"

@@ -14,12 +14,23 @@
     "GameBar.exe",
     "GameBarPresenceWriter.exe",
     "Spotify.exe",
-    "OneDrive.exe"
+    "OneDrive.exe",
+    "chrome.exe",
+    "Code.exe",
+    "Cursor.exe",
+    "Warp.exe",
+    "Everything.exe",
+    "uTorrentWeb.exe",
+    "Docker Desktop.exe",
+    "GoogleDriveFS.exe",
+    "Claude.exe",
+    "GitHubDesktop.exe",
+    "SystemSettings.exe"
   ],
   "AllowedApplications": [
-    "chrome.exe",
     "Ecampus proctor.exe",
     "SEE.exe",
+    "EcampusProctor.exe",
     "pwsh.exe"
   ],
   "ServicesToManage": [
@@ -38,6 +49,7 @@
     "C:\\Users\\gianc\\AppData\\Local\\Programs\\ecampus-proctor\\EcampusProctor.exe",
     "C:\\Program Files\\Doxinet\\SEE\\SEE.exe"
   ],
+  "ProctoringAppName": "EcampusProctor.exe",
   "EmptyRecycleBin": true,
   "AdvancedOptimizations": {
     "EnablePCPerformance": true,
@@ -45,8 +57,8 @@
     "DisableNagleAlgorithm": true
   },
   "PowerPlanOptimizations": {
-    "HighPerformanceGuid": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
-    "UltimatePerformanceGuid": "e9a42b02-d5df-448d-aa00-03f14749eb61"
+    "HighPerformanceGuid": "a0460757-80f0-442c-b378-0d58ff49fd52",
+    "UltimatePerformanceGuid": "1838ccce-2351-47fc-9880-d77089fcec94"
   },
   "NetworkAdapterManagement": {
     "Enabled": true,
