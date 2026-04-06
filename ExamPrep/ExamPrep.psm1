@@ -116,6 +116,15 @@ function Test-PendingReboot {
     return $rebootPending
 }
 
+function Test-ExamPrepConfig {
+    param([PSCustomObject]$Config)
+    $mandatoryKeys = @("ProcessesToKill", "AllowedApplications", "ServicesToManage", "ProctoringAppPaths", "AdvancedOptimizations")
+    foreach ($key in $mandatoryKeys) {
+        if ($null -eq $Config.$key) { throw "Configurazione non valida: Chiave obbligatoria '$key' mancante." }
+    }
+    Write-Log -Level VERBOSE -Message "Validazione configurazione completata con successo."
+}
+
 function Invoke-ProcessClassifier {
     param($DiscoveredProcesses, $ConfigPath)
     $sessionKillList = [System.Collections.Generic.List[string]]@()
@@ -246,7 +255,7 @@ function Start-ExamPreparation {
         # Se abbiamo trovato il percorso, salvalo ed esegui il backup delle impostazioni associate
         if ($proctorExePath) {
             $backupData.ProctorProcess.Path = $proctorExePath
-            $backupData.ProctorProcess.AppName = $proctorAppName ?: $Script:GlobalConfig.ProctoringAppName
+            $backupData.ProctorProcess.AppName = if ($proctorAppName) { $proctorAppName } else { $Script:GlobalConfig.ProctoringAppName }
             $gpuPrefKey = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"
             $backupData.ProctorProcess.GpuPreference = Get-ItemPropertyValue -Path $gpuPrefKey -Name $proctorExePath -ErrorAction SilentlyContinue
             Write-Log -Level VERBOSE "Percorso eseguibile del proctor ('$proctorExePath') salvato per le ottimizzazioni."
